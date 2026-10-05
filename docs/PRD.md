@@ -761,6 +761,7 @@ One important addition
 Although your original stack is:
 Dart + Flutter + Firebase Auth + Cloud Firestore + Firebase Storage + Emulator/Device
 I'd add Firebase Cloud Functions to the architecture, particularly for booking conflict validation, privileged operations, and aggregation/analytics. It makes your solution much more defensible technically.
+
 35. One-Line Product Definition
 For your presentation/viva, you can summarize the entire project as:
 Occupier is a centralized, real-time co-working space management platform that synchronizes bookings, walk-ins, and occupancy across multiple branches while providing management with reliable utilization analytics for operational and expansion decisions.
