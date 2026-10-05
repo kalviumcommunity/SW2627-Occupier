@@ -484,3 +484,286 @@ A scalable structure could be:
 Potentially:
 /branches/{branchId}/staff/{userId}
 for branch-specific staff assignments.
+
+23. Firestore Booking Example
+{
+  "userId": "user_123",
+  "branchId": "branch_jaipur",
+  "resourceId": "desk_42",
+  "resourceType": "desk",
+  "startTime": "2026-10-05T10:00:00",
+  "endTime": "2026-10-05T14:00:00",
+  "status": "confirmed",
+  "source": "member",
+  "createdAt": "..."
+}
+24. Occupancy Record
+{
+  "userId": "user_123",
+  "branchId": "branch_jaipur",
+  "resourceId": "desk_42",
+  "checkInTime": "...",
+  "checkOutTime": null,
+  "status": "active",
+  "source": "booking"
+}
+When the user checks out:
+status: active
+      ↓
+status: completed
+checkOutTime: timestamp
+25. Flutter Application Architecture
+For a university project, I'd recommend keeping the Flutter architecture clean but not unnecessarily complicated.
+lib/
+│
+├── core/
+│   ├── constants/
+│   ├── theme/
+│   ├── utils/
+│   └── services/
+│
+├── models/
+│   ├── user.dart
+│   ├── branch.dart
+│   ├── desk.dart
+│   ├── meeting_room.dart
+│   ├── booking.dart
+│   └── occupancy.dart
+│
+├── features/
+│   ├── auth/
+│   ├── dashboard/
+│   ├── branches/
+│   ├── desks/
+│   ├── meeting_rooms/
+│   ├── bookings/
+│   ├── occupancy/
+│   └── profile/
+│
+└── main.dart
+For state management, Riverpod or Bloc would fit well, although it isn't strictly required by your stated stack.
+26. Firebase Services
+Requirement
+Firebase Service
+Login/signup
+Firebase Authentication
+User profiles
+Cloud Firestore
+Branch data
+Cloud Firestore
+Desk data
+Cloud Firestore
+Room data
+Cloud Firestore
+Bookings
+Cloud Firestore
+Live occupancy
+Cloud Firestore
+Images
+Firebase Storage
+Push notifications
+Firebase Cloud Messaging
+Backend validation/logic
+Cloud Functions
+Local testing
+Firebase Emulator Suite
+You haven't listed Cloud Functions, but I'd strongly recommend adding it to the stack for production-grade booking validation and privileged backend operations.
+27. Security Requirements
+Security is particularly important because users should not be able to modify another branch's data.
+Example access rules
+Admin
+Read/write:
+All branches
+All bookings
+All occupancy
+Branch Staff
+Read/write:
+Assigned branch
+Read:
+Relevant bookings/occupancy
+Member
+Read:
+Available branches/resources
+Create:
+Own bookings
+Read/update:
+Own bookings
+A member should never be able to simply modify:
+booking.userId
+booking.branchId
+booking.status
+through a manipulated client request.
+These permissions should be enforced through Firestore Security Rules, not only Flutter UI logic.
+28. MVP Scope
+For a university project, I'd make the MVP:
+Authentication
+Registration
+Login
+Logout
+Role-based access
+Member
+View branches
+View available desks
+View meeting rooms
+Book resource
+View bookings
+Cancel booking
+Check in/out
+Branch Staff
+Branch dashboard
+View occupancy
+Walk-in check-in
+Check-out
+View bookings
+Admin
+Network dashboard
+Branch management
+Resource management
+Live occupancy
+Basic analytics
+Backend
+Firestore
+Firebase Auth
+Storage
+Security Rules
+Emulator testing
+29. Future Features
+After MVP:
+Phase 2
+Push notifications.
+QR-code check-in.
+Booking reminders.
+No-show detection.
+Advanced analytics.
+Export reports.
+Phase 3
+Payment integration.
+Membership management.
+IoT occupancy sensors.
+Predictive demand analysis.
+Dynamic pricing.
+External calendar integration.
+30. Non-Functional RequirementsPerformance
+Dashboard should update near real-time.
+Normal screens should load within a few seconds under normal network conditions.
+Booking confirmation should happen without unnecessary refreshes.
+Reliability
+Booking conflicts must be prevented.
+Firestore should be the authoritative source of booking state.
+App should gracefully handle network failures.
+Security
+Firebase Authentication required for protected features.
+Firestore Security Rules enforce authorization.
+Users can only access permitted resources.
+Scalability
+The architecture should support:
+10+ branches
+   ↓
+100+ branches
+   ↓
+1000+ resources
+   ↓
+10,000+ users
+without requiring a complete architectural rewrite.
+31. Success Metrics
+The project can measure its success using:
+Metric
+Target
+Double bookings
+0
+Branches represented centrally
+100%
+Real-time occupancy accuracy
+>95%
+Boking success rate
+>98%
+Wlk-ins recorded
+>95%
+Dshboard data freshness
+Near real-time
+Booking completion time
+<1 minute
+32. Acceptance Criteria
+The MVP is considered successful when:
+Booking
+A user can select a branch, resource, date and time and successfully create a booking.
+Double booking
+Two users cannot successfully reserve the same desk/room for overlapping periods.
+Occupancy
+When a user checks in, the branch's current occupancy updates automatically.
+Walk-in
+Branch staff can register a walk-in user and assign an available resource.
+Central visibility
+An administrator can see occupancy across all branches from a single dashboard.
+Security
+A branch employee cannot modify another branch's resources or occupancy.
+Analytics
+The system stores sufficient historical booking/occupancy information to calculate utilization.
+33. Recommended MVP Screen Map
+Your Flutter app could have roughly these screens:
+                    ┌──────────────┐
+                    │ Splash       │
+                    └──────┬───────┘
+                           ↓
+                    ┌──────────────┐
+                    │ Login        │
+                    └──────┬───────┘
+                           ↓
+                 ┌─────────┴─────────┐
+                 ↓                   ↓
+             Member             Staff/Admin
+                 ↓                   ↓
+          Member Dashboard      Dashboard
+                 │                   │
+       ┌─────────┼─────────┐    ┌────┼────┐
+       ↓         ↓         ↓    ↓         ↓
+   Branches   Bookings   Profile Branches Analytics
+       │
+       ↓
+   Select Branch
+       │
+       ↓
+   Select Resource
+       │
+       ↓
+   Select Date/Time
+       │
+       ↓
+   Confirm Booking
+       │
+       ↓
+   My Booking
+34. Recommended Tech Stack
+I'd present your stack in the project documentation as:
+Layer
+Technology
+Frontend
+Flutter
+Programming Language
+Dart
+Authentication
+Firebase Authentication
+Database
+Cloud Firestore
+File Storage
+Firebase Storage
+Server-side logic
+Firebase Cloud Functions
+Authorization
+Firestore Security Rules
+Notifications
+Firebase Cloud Messaging
+Local backend testing
+Firebase Emulator Suite
+Target devices
+Android / iOS / Emulator
+One important addition
+Although your original stack is:
+Dart + Flutter + Firebase Auth + Cloud Firestore + Firebase Storage + Emulator/Device
+I'd add Firebase Cloud Functions to the architecture, particularly for booking conflict validation, privileged operations, and aggregation/analytics. It makes your solution much more defensible technically.
+
+35. One-Line Product Definition
+For your presentation/viva, you can summarize the entire project as:
+Occupier is a centralized, real-time co-working space management platform that synchronizes bookings, walk-ins, and occupancy across multiple branches while providing management with reliable utilization analytics for operational and expansion decisions.
+
+This gives you a strong connection between the problem → solution → features → architecture → business value, rather than making the project look like simply a "desk booking app."
