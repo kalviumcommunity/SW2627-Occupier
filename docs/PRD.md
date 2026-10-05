@@ -764,4 +764,5 @@ I'd add Firebase Cloud Functions to the architecture, particularly for booking c
 35. One-Line Product Definition
 For your presentation/viva, you can summarize the entire project as:
 Occupier is a centralized, real-time co-working space management platform that synchronizes bookings, walk-ins, and occupancy across multiple branches while providing management with reliable utilization analytics for operational and expansion decisions.
+
 This gives you a strong connection between the problem → solution → features → architecture → business value, rather than making the project look like simply a "desk booking app."
