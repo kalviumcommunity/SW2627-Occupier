@@ -173,3 +173,133 @@ At a high level, the system follows this architecture:
                     Firebase Storage
                            |
                     Images / Files
+
+
+Getting StartedPrerequisites
+Make sure the following are installed:
+Flutter SDK
+Dart SDK
+Firebase CLI
+Git
+Android Studio or Xcode
+Android/iOS emulator or physical device
+Clone the Repository
+git clone <repository-url>
+cd <project-directory>
+Install Dependencies
+flutter pub get
+Run the Application
+flutter run
+Firebase Setup
+Occupier uses Firebase for authentication, database, storage, and local development.
+The main Firebase services used are:
+Firebase Authentication
+Cloud Firestore
+Firebase Storage
+Firebase Emulator Suite
+For local development, the Firebase Emulator Suite can be used to test Firebase services without modifying production data.
+firebase emulators:start
+
+Project Structure
+The Flutter application is organized by features and responsibilities.
+lib/
+├── core/
+│   ├── constants/
+│   ├── services/
+│   ├── theme/
+│   └── utils/
+│
+├── models/
+│   ├── user.dart
+│   ├── branch.dart
+│   ├── desk.dart
+│   ├── meeting_room.dart
+│   ├── booking.dart
+│   └── occupancy.dart
+│
+├── features/
+│   ├── auth/
+│   ├── dashboard/
+│   ├── branches/
+│   ├── desks/
+│   ├── meeting_rooms/
+│   ├── bookings/
+│   ├── occupancy/
+│   └── profile/
+│
+└── main.dart
+Development Workflow
+Development is organized using feature and documentation branches rather than committing directly to the main branch.
+Branch Naming Convention
+feature/<feature-name>
+fix/<issue-name>
+docs/<documentation-name>
+refactor/<change-name>
+Examples:
+feature/authentication
+feature/desk-booking
+feature/occupancy-dashboard
+fix/booking-conflict
+docs/create-prd
+Example Workflow
+git checkout -b docs/create-prd
+
+git add .
+
+git commit -m "docs: add project PRD"
+
+git push -u origin docs/create-prd
+Pull requests can then be opened against the main branch.
+MVP Scope
+The initial version of Occupier focuses on:
+User authentication.
+Role-based access.
+Branch management.
+Desk management.
+Meeting-room management.
+Desk booking.
+Meeting-room booking.
+Double-booking prevention.
+Real-time occupancy.
+Walk-in management.
+Check-in and check-out.
+Basic utilization analytics.
+Central administration dashboard.
+Future Improvements
+Potential future features include:
+Push notifications.
+QR-code check-in.
+Booking reminders.
+No-show detection.
+Advanced analytics.
+Payment integration.
+Membership management.
+IoT-based occupancy sensors.
+Predictive demand analysis.
+Dynamic pricing.
+External calendar integration.
+License
+This project is developed for academic purposes.
+
+### One thing before you commit
+
+Replace these two placeholders:
+
+```text
+<repository-url>
+<project-directory>
+For example:
+git clone https://github.com/your-team/occupier.git
+cd occupier
+And I'd keep Cloud Functions out of the README for now, since you haven't listed it as part of your confirmed stack. You can add it later if your implementation actually uses it.
+Your repository would then have a nice structure:
+Occupier/
+├── README.md
+├── docs/
+│   └── PRD.md
+├── lib/
+├── test/
+├── android/
+├── ios/
+├── pubspec.yaml
+└── ...
