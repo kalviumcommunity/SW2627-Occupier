@@ -347,7 +347,7 @@ Walk-in process
 Staff selects:
 Walk-in
  ↓
-Customer
+CUSTOMER
  ↓
 Resource
  ↓
