@@ -701,6 +701,7 @@ Analytics
 The system stores sufficient historical booking/occupancy information to calculate utilization.
 33. Recommended MVP Screen Map
 Your Flutter app could have roughly these screens:
+
                     ┌──────────────┐
                     │ Splash       │
                     └──────┬───────┘
