@@ -65,6 +65,20 @@ class ResourceRepository {
     return document.id;
   }
 
+  Future<Desk?> getDesk(String branchId, String deskId) async {
+    final document = await _branches
+        .doc(branchId)
+        .collection('desks')
+        .doc(deskId)
+        .get();
+
+    if (!document.exists) {
+      return null;
+    }
+
+    return Desk.fromFirestore(document);
+  }
+
   // ---------------------------
   // Meeting rooms
   // ---------------------------
@@ -89,5 +103,19 @@ class ResourceRepository {
     await document.set(data);
 
     return document.id;
+  }
+
+  Future<MeetingRoom?> getMeetingRoom(String branchId, String roomId) async {
+    final document = await _branches
+        .doc(branchId)
+        .collection('rooms')
+        .doc(roomId)
+        .get();
+
+    if (!document.exists) {
+      return null;
+    }
+
+    return MeetingRoom.fromFirestore(document);
   }
 }
