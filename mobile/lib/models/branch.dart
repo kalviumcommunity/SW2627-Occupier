@@ -4,7 +4,7 @@ enum BranchStatus { active, inactive }
 
 class Branch {
   const Branch({
-    required this.id,
+    this.id = '',
     required this.name,
     required this.address,
     required this.city,
