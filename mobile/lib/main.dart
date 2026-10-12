@@ -1,7 +1,7 @@
-
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 
+import 'features/branches/branches_screen.dart';
 import 'core/constants/app_routes.dart';
 import 'core/theme/app_theme.dart';
 import 'features/auth/screens/login_screen.dart';
@@ -12,9 +12,7 @@ import 'firebase_options.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   runApp(const OccupierApp());
 }
@@ -33,17 +31,13 @@ class OccupierApp extends StatelessWidget {
         AppRoutes.login: (_) => const LoginScreen(),
         AppRoutes.register: (_) => const RegisterScreen(),
         AppRoutes.forgotPassword: (_) => const ForgotPasswordScreen(),
-        AppRoutes.dashboard: (_) =>
-            const PlaceholderScreen(title: 'Dashboard'),
-        AppRoutes.branches: (_) =>
-            const PlaceholderScreen(title: 'Branches'),
+        AppRoutes.dashboard: (_) => const PlaceholderScreen(title: 'Dashboard'),
+        AppRoutes.branches: (_) => BranchesScreen(),
         AppRoutes.desks: (_) => const PlaceholderScreen(title: 'Desks'),
         AppRoutes.meetingRooms: (_) =>
             const PlaceholderScreen(title: 'Meeting Rooms'),
-        AppRoutes.bookings: (_) =>
-            const PlaceholderScreen(title: 'Bookings'),
-        AppRoutes.occupancy: (_) =>
-            const PlaceholderScreen(title: 'Occupancy'),
+        AppRoutes.bookings: (_) => const PlaceholderScreen(title: 'Bookings'),
+        AppRoutes.occupancy: (_) => const PlaceholderScreen(title: 'Occupancy'),
         AppRoutes.profile: (_) => const PlaceholderScreen(title: 'Profile'),
       },
     );
@@ -60,10 +54,7 @@ class PlaceholderScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: Text(title)),
       body: Center(
-        child: Text(
-          title,
-          style: Theme.of(context).textTheme.headlineMedium,
-        ),
+        child: Text(title, style: Theme.of(context).textTheme.headlineMedium),
       ),
     );
   }
