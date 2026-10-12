@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 import 'features/branches/branches_screen.dart';
 import 'core/constants/app_routes.dart';
 import 'core/theme/app_theme.dart';
+import 'features/auth/screens/login_screen.dart';
+import 'features/auth/screens/register_screen.dart';
+import 'features/auth/screens/forgot_password_screen.dart';
 import 'firebase_options.dart';
 
 Future<void> main() async {
@@ -25,10 +28,9 @@ class OccupierApp extends StatelessWidget {
       theme: AppTheme.lightTheme,
       initialRoute: AppRoutes.login,
       routes: {
-        AppRoutes.login: (_) => const PlaceholderScreen(title: 'Login'),
-        AppRoutes.register: (_) => const PlaceholderScreen(title: 'Register'),
-        AppRoutes.forgotPassword: (_) =>
-            const PlaceholderScreen(title: 'Forgot Password'),
+        AppRoutes.login: (_) => const LoginScreen(),
+        AppRoutes.register: (_) => const RegisterScreen(),
+        AppRoutes.forgotPassword: (_) => const ForgotPasswordScreen(),
         AppRoutes.dashboard: (_) => const PlaceholderScreen(title: 'Dashboard'),
         AppRoutes.branches: (_) => BranchesScreen(),
         AppRoutes.desks: (_) => const PlaceholderScreen(title: 'Desks'),
