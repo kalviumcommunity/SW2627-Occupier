@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/services/resource_repository.dart';
 import '../../models/branch.dart';
+import '../../core/constants/app_routes.dart';
 import 'branch_resources_screen.dart';
 
 class BranchesScreen extends StatelessWidget {
@@ -13,7 +14,18 @@ class BranchesScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Branches')),
+      appBar: AppBar(
+        title: const Text('Branches'),
+        actions: [
+          IconButton(
+            tooltip: 'Book a resource',
+            icon: const Icon(Icons.add_task),
+            onPressed: () {
+              Navigator.of(context).pushNamed(AppRoutes.bookings);
+            },
+          ),
+        ],
+      ),
       body: StreamBuilder<List<Branch>>(
         stream: _repository.watchBranches(),
         builder: (context, snapshot) {
