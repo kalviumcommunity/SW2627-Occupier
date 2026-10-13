@@ -7,6 +7,7 @@ import 'core/theme/app_theme.dart';
 import 'features/auth/screens/login_screen.dart';
 import 'features/auth/screens/register_screen.dart';
 import 'features/auth/screens/forgot_password_screen.dart';
+import 'features/profile/screens/profile_screen.dart';
 import 'firebase_options.dart';
 
 Future<void> main() async {
@@ -38,7 +39,7 @@ class OccupierApp extends StatelessWidget {
             const PlaceholderScreen(title: 'Meeting Rooms'),
         AppRoutes.bookings: (_) => const PlaceholderScreen(title: 'Bookings'),
         AppRoutes.occupancy: (_) => const PlaceholderScreen(title: 'Occupancy'),
-        AppRoutes.profile: (_) => const PlaceholderScreen(title: 'Profile'),
+        AppRoutes.profile: (_) => const ProfileScreen(),
       },
     );
   }
