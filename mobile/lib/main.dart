@@ -1,6 +1,6 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
-
+import 'features/dashboard/dashboard_screen.dart';
 import 'features/branches/branches_screen.dart';
 import 'core/constants/app_routes.dart';
 import 'core/theme/app_theme.dart';
@@ -33,7 +33,7 @@ class OccupierApp extends StatelessWidget {
         AppRoutes.login: (_) => const LoginScreen(),
         AppRoutes.register: (_) => const RegisterScreen(),
         AppRoutes.forgotPassword: (_) => const ForgotPasswordScreen(),
-        AppRoutes.dashboard: (_) => const PlaceholderScreen(title: 'Dashboard'),
+        AppRoutes.dashboard: (_) => const DashboardScreen(),
         AppRoutes.branches: (_) => BranchesScreen(),
         AppRoutes.desks: (_) => const PlaceholderScreen(title: 'Desks'),
         AppRoutes.meetingRooms: (_) =>
