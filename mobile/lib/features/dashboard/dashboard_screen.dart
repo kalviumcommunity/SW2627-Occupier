@@ -5,6 +5,8 @@ import '../../models/branch.dart';
 import '../../models/desk.dart';
 import '../../models/meeting_room.dart';
 import '../../services/occupancy_service.dart';
+import '../../core/services/occupancy_repository.dart';
+import '../../models/occupancy.dart';
 
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
@@ -13,11 +15,10 @@ class DashboardScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final repository = ResourceRepository();
     final occupancyService = OccupancyService();
+    final occupancyRepository = OccupancyRepository();
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Occupancy Dashboard'),
-      ),
+      appBar: AppBar(title: const Text('Occupancy Dashboard')),
       body: StreamBuilder<List<Branch>>(
         stream: repository.watchBranches(),
         builder: (context, branchSnapshot) {
@@ -27,12 +28,9 @@ class DashboardScreen extends StatelessWidget {
             );
           }
 
-          if (branchSnapshot.connectionState ==
-                  ConnectionState.waiting &&
+          if (branchSnapshot.connectionState == ConnectionState.waiting &&
               !branchSnapshot.hasData) {
-            return const Center(
-              child: CircularProgressIndicator(),
-            );
+            return const Center(child: CircularProgressIndicator());
           }
 
           final branches = (branchSnapshot.data ?? [])
@@ -40,14 +38,13 @@ class DashboardScreen extends StatelessWidget {
               .toList();
 
           if (branches.isEmpty) {
-            return const Center(
-              child: Text('No active branches found.'),
-            );
+            return const Center(child: Text('No active branches found.'));
           }
 
           return _buildNetworkDashboard(
             context,
             repository,
+            occupancyRepository,
             occupancyService,
             branches,
           );
@@ -59,6 +56,7 @@ class DashboardScreen extends StatelessWidget {
   Widget _buildNetworkDashboard(
     BuildContext context,
     ResourceRepository repository,
+    OccupancyRepository occupancyRepository,
     OccupancyService occupancyService,
     List<Branch> branches,
   ) {
@@ -85,26 +83,30 @@ class DashboardScreen extends StatelessWidget {
             }
 
             if (!roomSnapshot.hasData) {
-              return const Center(
-                child: CircularProgressIndicator(),
-              );
+              return const Center(child: CircularProgressIndicator());
             }
 
             final desks = deskSnapshot.data!;
             final rooms = roomSnapshot.data!;
 
-            final totalCapacity = desks
-                    .where((desk) =>
-                        desk.status == DeskStatus.available ||
-                        desk.status == DeskStatus.occupied)
+            final totalCapacity =
+                desks
+                    .where(
+                      (desk) =>
+                          desk.status == DeskStatus.available ||
+                          desk.status == DeskStatus.occupied,
+                    )
                     .length +
                 rooms
-                    .where((room) =>
-                        room.status == MeetingRoomStatus.available ||
-                        room.status == MeetingRoomStatus.occupied)
+                    .where(
+                      (room) =>
+                          room.status == MeetingRoomStatus.available ||
+                          room.status == MeetingRoomStatus.occupied,
+                    )
                     .fold<int>(0, (sum, room) => sum + room.capacity);
 
-            final occupiedCapacity = desks
+            final occupiedCapacity =
+                desks
                     .where((desk) => desk.status == DeskStatus.occupied)
                     .length +
                 rooms
@@ -121,44 +123,63 @@ class DashboardScreen extends StatelessWidget {
               capacity: totalCapacity,
             );
 
-            return ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                Text(
-                  'Network Overview',
-                  style: Theme.of(context).textTheme.headlineSmall,
-                ),
-                const SizedBox(height: 20),
-                _buildStatCard(
-                  'Total Capacity',
-                  totalCapacity.toString(),
-                ),
-                _buildStatCard(
-                  'Occupied Capacity',
-                  occupiedCapacity.toString(),
-                ),
-                _buildStatCard(
-                  'Available Capacity',
-                  availableCapacity.toString(),
-                ),
-                const SizedBox(height: 20),
-                Text(
-                  'Occupancy Rate: ${occupancyRate.toStringAsFixed(1)}%',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 12),
-                LinearProgressIndicator(
-                  value: (occupancyRate / 100).clamp(0.0, 1.0),
-                  minHeight: 12,
-                ),
-                const SizedBox(height: 20),
-                Text('Active branches: ${branches.length}'),
-                const SizedBox(height: 8),
-                const Text(
-                  'Occupancy is estimated from each resource status. '
-                  'Occupied meeting rooms count at their full seat capacity.',
-                ),
-              ],
+            return StreamBuilder<List<Occupancy>>(
+              stream: occupancyRepository.watchActiveOccupancies(),
+              builder: (context, occupancySnapshot) {
+                if (occupancySnapshot.hasError) {
+                  return const Center(
+                    child: Text('Unable to load active occupancy records.'),
+                  );
+                }
+
+                if (!occupancySnapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+
+                final activeOccupancies = occupancySnapshot.data!;
+
+                return ListView(
+                  padding: const EdgeInsets.all(16),
+                  children: [
+                    Text(
+                      'Network Overview',
+                      style: Theme.of(context).textTheme.headlineSmall,
+                    ),
+                    const SizedBox(height: 20),
+                    _buildStatCard('Total Capacity', totalCapacity.toString()),
+                    _buildStatCard(
+                      'Occupied Capacity',
+                      occupiedCapacity.toString(),
+                    ),
+                    _buildStatCard(
+                      'Available Capacity',
+                      availableCapacity.toString(),
+                    ),
+                    _buildStatCard(
+                      'Active Check-ins',
+                      activeOccupancies.length.toString(),
+                    ),
+                    const SizedBox(height: 20),
+                    Text(
+                      'Occupancy Rate: ${occupancyRate.toStringAsFixed(1)}%',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 12),
+                    LinearProgressIndicator(
+                      value: (occupancyRate / 100).clamp(0.0, 1.0),
+                      minHeight: 12,
+                    ),
+                    const SizedBox(height: 20),
+                    Text('Active branches: ${branches.length}'),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Capacity is calculated from desk and room statuses. '
+                      'Active check-ins are counted separately from occupancy records. '
+                      'Occupied meeting rooms count at their full seat capacity.',
+                    ),
+                  ],
+                );
+              },
             );
           },
         );
@@ -175,15 +196,14 @@ class DashboardScreen extends StatelessWidget {
       final subscriptions = <String, dynamic>{};
 
       for (final branch in branches) {
-        subscriptions[branch.id] = repository.watchDesks(branch.id).listen(
-          (desks) {
-            results[branch.id] = desks;
-            if (results.length == branches.length) {
-              controller.add(results.values.expand((items) => items).toList());
-            }
-          },
-          onError: controller.addError,
-        );
+        subscriptions[branch.id] = repository.watchDesks(branch.id).listen((
+          desks,
+        ) {
+          results[branch.id] = desks;
+          if (results.length == branches.length) {
+            controller.add(results.values.expand((items) => items).toList());
+          }
+        }, onError: controller.addError);
       }
 
       controller.onCancel = () async {
@@ -203,16 +223,16 @@ class DashboardScreen extends StatelessWidget {
       final subscriptions = <String, dynamic>{};
 
       for (final branch in branches) {
-        subscriptions[branch.id] =
-            repository.watchMeetingRooms(branch.id).listen(
-          (rooms) {
-            results[branch.id] = rooms;
-            if (results.length == branches.length) {
-              controller.add(results.values.expand((items) => items).toList());
-            }
-          },
-          onError: controller.addError,
-        );
+        subscriptions[branch.id] = repository
+            .watchMeetingRooms(branch.id)
+            .listen((rooms) {
+              results[branch.id] = rooms;
+              if (results.length == branches.length) {
+                controller.add(
+                  results.values.expand((items) => items).toList(),
+                );
+              }
+            }, onError: controller.addError);
       }
 
       controller.onCancel = () async {
@@ -229,10 +249,7 @@ class DashboardScreen extends StatelessWidget {
         title: Text(title),
         trailing: Text(
           value,
-          style: const TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-          ),
+          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
         ),
       ),
     );
