@@ -1,9 +1,9 @@
-
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
-import '../../../services/auth_service.dart';
 import '../../../core/constants/app_routes.dart';
+import '../../../core/services/auth_error_handler.dart';
+import '../../../services/auth_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -16,7 +16,6 @@ class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-
 
   bool _isLoading = false;
   bool _obscurePassword = true;
@@ -35,44 +34,45 @@ class _LoginScreenState extends State<LoginScreen> {
 
     try {
       await AuthService().login(
-        email: _emailController.text,
+        email: _emailController.text.trim(),
         password: _passwordController.text,
       );
 
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Login successful!')),
+        const SnackBar(
+          content: Text('Login successful!'),
+        ),
       );
 
-      Navigator.pushReplacementNamed(context, AppRoutes.dashboard);
+      Navigator.pushReplacementNamed(
+        context,
+        AppRoutes.dashboard,
+      );
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
 
-      String message;
-      switch (e.code) {
-        case 'invalid-email':
-          message = 'Please enter a valid email address.';
-        case 'invalid-credential':
-        case 'wrong-password':
-        case 'user-not-found':
-          message = 'Invalid email or password.';
-        case 'too-many-requests':
-          message = 'Too many attempts. Please try again later.';
-        default:
-          message = e.message ?? 'Login failed. Please try again.';
-      }
+      final message = AuthErrorHandler.getMessage(
+        e,
+        action: AuthAction.login,
+      );
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message)),
       );
     } catch (_) {
       if (!mounted) return;
+
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Something went wrong.')),
+        const SnackBar(
+          content: Text('Something went wrong. Please try again.'),
+        ),
       );
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -118,11 +118,16 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       validator: (value) {
                         final email = value?.trim() ?? '';
-                        if (email.isEmpty) return 'Email is required.';
+
+                        if (email.isEmpty) {
+                          return 'Email is required.';
+                        }
+
                         if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
                             .hasMatch(email)) {
                           return 'Enter a valid email address.';
                         }
+
                         return null;
                       },
                     ),
@@ -136,15 +141,18 @@ class _LoginScreenState extends State<LoginScreen> {
                         prefixIcon: const Icon(Icons.lock_outline),
                         border: const OutlineInputBorder(),
                         suffixIcon: IconButton(
+                          tooltip: _obscurePassword
+                              ? 'Show password'
+                              : 'Hide password',
                           icon: Icon(
                             _obscurePassword
                                 ? Icons.visibility_outlined
                                 : Icons.visibility_off_outlined,
                           ),
                           onPressed: () {
-                            setState(
-                              () => _obscurePassword = !_obscurePassword,
-                            );
+                            setState(() {
+                              _obscurePassword = !_obscurePassword;
+                            });
                           },
                         ),
                       ),
@@ -152,16 +160,21 @@ class _LoginScreenState extends State<LoginScreen> {
                         if (value == null || value.isEmpty) {
                           return 'Password is required.';
                         }
+
                         return null;
                       },
                     ),
                     Align(
                       alignment: Alignment.centerRight,
                       child: TextButton(
-                        onPressed: () => Navigator.pushNamed(
-                          context,
-                          AppRoutes.forgotPassword,
-                        ),
+                        onPressed: _isLoading
+                            ? null
+                            : () {
+                                Navigator.pushNamed(
+                                  context,
+                                  AppRoutes.forgotPassword,
+                                );
+                              },
                         child: const Text('Forgot password?'),
                       ),
                     ),
@@ -183,9 +196,17 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     const SizedBox(height: 12),
                     TextButton(
-                      onPressed: () =>
-                          Navigator.pushNamed(context, AppRoutes.register),
-                      child: const Text("Don't have an account? Register"),
+                      onPressed: _isLoading
+                          ? null
+                          : () {
+                              Navigator.pushNamed(
+                                context,
+                                AppRoutes.register,
+                              );
+                            },
+                      child: const Text(
+                        "Don't have an account? Register",
+                      ),
                     ),
                   ],
                 ),

@@ -2,6 +2,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../../core/services/auth_error_handler.dart';
 import '../../../services/auth_service.dart';
 
 class ForgotPasswordScreen extends StatefulWidget {
@@ -16,7 +17,6 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
 
-
   bool _isLoading = false;
   bool _emailSent = false;
 
@@ -27,13 +27,14 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   }
 
   Future<void> _sendResetLink() async {
+    if (_isLoading || _emailSent) return;
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isLoading = true);
 
     try {
       await AuthService().resetPassword(
-        email: _emailController.text,
+        email: _emailController.text.trim(),
       );
 
       if (!mounted) return;
@@ -42,21 +43,18 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('If an account exists, a reset email will be sent.'),
+          content: Text(
+            'If an account exists, a reset email will be sent.',
+          ),
         ),
       );
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
 
-      String message;
-      switch (e.code) {
-        case 'invalid-email':
-          message = 'Please enter a valid email address.';
-        case 'too-many-requests':
-          message = 'Too many attempts. Please try again later.';
-        default:
-          message = 'Unable to send reset email. Please try again.';
-      }
+      final message = AuthErrorHandler.getMessage(
+        e,
+        action: AuthAction.passwordReset,
+      );
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message)),
@@ -66,18 +64,24 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Something went wrong. Please try again.'),
+          content: Text(
+            'Something went wrong. Please try again.',
+          ),
         ),
       );
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Forgot Password')),
+      appBar: AppBar(
+        title: const Text('Forgot Password'),
+      ),
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
@@ -89,10 +93,15 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const Icon(Icons.lock_reset, size: 64),
+                    const Icon(
+                      Icons.lock_reset,
+                      size: 64,
+                    ),
                     const SizedBox(height: 20),
                     Text(
-                      _emailSent ? 'Check your email' : 'Reset your password',
+                      _emailSent
+                          ? 'Check your email'
+                          : 'Reset your password',
                       textAlign: TextAlign.center,
                       style: Theme.of(context).textTheme.headlineSmall,
                     ),
@@ -106,7 +115,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                     const SizedBox(height: 28),
                     TextFormField(
                       controller: _emailController,
-                      enabled: !_emailSent,
+                      enabled: !_emailSent && !_isLoading,
                       keyboardType: TextInputType.emailAddress,
                       autofillHints: const [AutofillHints.email],
                       decoration: const InputDecoration(
@@ -116,20 +125,28 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                       ),
                       validator: (value) {
                         final email = value?.trim() ?? '';
-                        if (email.isEmpty) return 'Email is required.';
+
+                        if (email.isEmpty) {
+                          return 'Email is required.';
+                        }
+
                         if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
                             .hasMatch(email)) {
                           return 'Enter a valid email address.';
                         }
+
                         return null;
                       },
                     ),
                     const SizedBox(height: 24),
                     if (!_emailSent)
                       FilledButton(
-                        onPressed: _isLoading ? null : _sendResetLink,
+                        onPressed:
+                            _isLoading ? null : _sendResetLink,
                         child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          padding: const EdgeInsets.symmetric(
+                            vertical: 12,
+                          ),
                           child: _isLoading
                               ? const SizedBox(
                                   width: 22,
@@ -142,7 +159,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                         ),
                       ),
                     TextButton(
-                      onPressed: () => Navigator.pop(context),
+                      onPressed: _isLoading
+                          ? null
+                          : () => Navigator.pop(context),
                       child: const Text('Back to Login'),
                     ),
                   ],

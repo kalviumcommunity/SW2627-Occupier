@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/constants/app_routes.dart';
+import '../../../core/services/auth_error_handler.dart';
 import '../../../services/auth_service.dart';
 
 class RegisterScreen extends StatefulWidget {
@@ -18,7 +19,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
-
 
   bool _isLoading = false;
   bool _obscurePassword = true;
@@ -40,7 +40,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     try {
       final credential = await AuthService().register(
-        email: _emailController.text,
+        email: _emailController.text.trim(),
         password: _passwordController.text,
       );
 
@@ -64,19 +64,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
 
-      String message;
-      switch (e.code) {
-        case 'email-already-in-use':
-          message = 'An account already exists with this email.';
-        case 'invalid-email':
-          message = 'Please enter a valid email address.';
-        case 'weak-password':
-          message = 'Please choose a stronger password.';
-        case 'operation-not-allowed':
-          message = 'Email/password sign-up is not enabled.';
-        default:
-          message = e.message ?? 'Registration failed. Please try again.';
-      }
+      final message = AuthErrorHandler.getMessage(
+        e,
+        action: AuthAction.register,
+      );
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message)),
@@ -90,14 +81,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
         ),
       );
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Create Account')),
+      appBar: AppBar(
+        title: const Text('Create Account'),
+      ),
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
@@ -148,11 +143,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       ),
                       validator: (value) {
                         final email = value?.trim() ?? '';
-                        if (email.isEmpty) return 'Email is required.';
+
+                        if (email.isEmpty) {
+                          return 'Email is required.';
+                        }
+
                         if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
                             .hasMatch(email)) {
                           return 'Enter a valid email address.';
                         }
+
                         return null;
                       },
                     ),
@@ -166,10 +166,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         prefixIcon: const Icon(Icons.lock_outline),
                         border: const OutlineInputBorder(),
                         suffixIcon: IconButton(
+                          tooltip: _obscurePassword
+                              ? 'Show password'
+                              : 'Hide password',
                           onPressed: () {
-                            setState(
-                              () => _obscurePassword = !_obscurePassword,
-                            );
+                            setState(() {
+                              _obscurePassword = !_obscurePassword;
+                            });
                           },
                           icon: Icon(
                             _obscurePassword
@@ -182,9 +185,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         if (value == null || value.isEmpty) {
                           return 'Password is required.';
                         }
+
                         if (value.length < 6) {
                           return 'Password must be at least 6 characters.';
                         }
+
                         return null;
                       },
                     ),
@@ -197,11 +202,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         prefixIcon: const Icon(Icons.lock_outline),
                         border: const OutlineInputBorder(),
                         suffixIcon: IconButton(
+                          tooltip: _obscureConfirmPassword
+                              ? 'Show password'
+                              : 'Hide password',
                           onPressed: () {
-                            setState(
-                              () => _obscureConfirmPassword =
-                                  !_obscureConfirmPassword,
-                            );
+                            setState(() {
+                              _obscureConfirmPassword =
+                                  !_obscureConfirmPassword;
+                            });
                           },
                           icon: Icon(
                             _obscureConfirmPassword
@@ -214,9 +222,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         if (value == null || value.isEmpty) {
                           return 'Please confirm your password.';
                         }
+
                         if (value != _passwordController.text) {
                           return 'Passwords do not match.';
                         }
+
                         return null;
                       },
                     ),
@@ -238,11 +248,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     ),
                     const SizedBox(height: 12),
                     TextButton(
-                      onPressed: () => Navigator.pushReplacementNamed(
-                        context,
-                        AppRoutes.login,
+                      onPressed: _isLoading
+                          ? null
+                          : () {
+                              Navigator.pushReplacementNamed(
+                                context,
+                                AppRoutes.login,
+                              );
+                            },
+                      child: const Text(
+                        'Already have an account? Login',
                       ),
-                      child: const Text('Already have an account? Login'),
                     ),
                   ],
                 ),
