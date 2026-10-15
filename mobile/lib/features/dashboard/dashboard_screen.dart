@@ -171,7 +171,167 @@ class DashboardScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 20),
                     Text('Active branches: ${branches.length}'),
+                    const SizedBox(height: 24),
                     const SizedBox(height: 8),
+                    const SizedBox(height: 24),
+                    Text(
+                      'Branch Overview',
+                      style: Theme.of(context).textTheme.headlineSmall,
+                    ),
+                    const SizedBox(height: 12),
+
+                    ...branches.map((branch) {
+                      return StreamBuilder<List<Desk>>(
+                        stream: repository.watchDesks(branch.id),
+                        builder: (context, branchDeskSnapshot) {
+                          if (branchDeskSnapshot.hasError) {
+                            return Card(
+                              child: ListTile(
+                                title: Text(branch.name),
+                                subtitle: const Text(
+                                  'Unable to load branch desks.',
+                                ),
+                              ),
+                            );
+                          }
+
+                          if (!branchDeskSnapshot.hasData) {
+                            return Card(
+                              child: ListTile(
+                                title: Text(branch.name),
+                                subtitle: const LinearProgressIndicator(),
+                              ),
+                            );
+                          }
+
+                          final desks = branchDeskSnapshot.data!;
+                          return StreamBuilder<List<MeetingRoom>>(
+                            stream: repository.watchMeetingRooms(branch.id),
+                            builder: (context, roomSnapshot) {
+                              if (roomSnapshot.hasError) {
+                                return Card(
+                                  child: ListTile(
+                                    title: Text(branch.name),
+                                    subtitle: const Text(
+                                      'Unable to load meeting rooms.',
+                                    ),
+                                  ),
+                                );
+                              }
+
+                              if (!roomSnapshot.hasData) {
+                                return Card(
+                                  child: ListTile(
+                                    title: Text(branch.name),
+                                    subtitle: const LinearProgressIndicator(),
+                                  ),
+                                );
+                              }
+
+                              final rooms = roomSnapshot.data!;
+
+                              final totalCapacity =
+                                  desks
+                                      .where(
+                                        (desk) =>
+                                            desk.status ==
+                                                DeskStatus.available ||
+                                            desk.status == DeskStatus.occupied,
+                                      )
+                                      .length +
+                                  rooms
+                                      .where(
+                                        (room) =>
+                                            room.status ==
+                                                MeetingRoomStatus.available ||
+                                            room.status ==
+                                                MeetingRoomStatus.occupied,
+                                      )
+                                      .fold<int>(
+                                        0,
+                                        (sum, room) => sum + room.capacity,
+                                      );
+
+                              final occupiedCapacity =
+                                  desks
+                                      .where(
+                                        (desk) =>
+                                            desk.status == DeskStatus.occupied,
+                                      )
+                                      .length +
+                                  rooms
+                                      .where(
+                                        (room) =>
+                                            room.status ==
+                                            MeetingRoomStatus.occupied,
+                                      )
+                                      .fold<int>(
+                                        0,
+                                        (sum, room) => sum + room.capacity,
+                                      );
+
+                              final availableCapacity =
+                                  (totalCapacity - occupiedCapacity)
+                                      .clamp(0, totalCapacity)
+                                      .toInt();
+
+                              final occupancyRate = totalCapacity == 0
+                                  ? 0.0
+                                  : occupiedCapacity / totalCapacity;
+
+                              return Card(
+                                margin: const EdgeInsets.only(bottom: 12),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(16),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        branch.name,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .titleLarge,
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(branch.city),
+                                      const Divider(height: 24),
+                                      _BranchMetricRow(
+                                        label: 'Total capacity',
+                                        value: '$totalCapacity',
+                                      ),
+                                      const SizedBox(height: 8),
+                                      _BranchMetricRow(
+                                        label: 'Occupied',
+                                        value: '$occupiedCapacity',
+                                      ),
+                                      const SizedBox(height: 8),
+                                      _BranchMetricRow(
+                                        label: 'Available',
+                                        value: '$availableCapacity',
+                                      ),
+                                      const SizedBox(height: 12),
+                                      LinearProgressIndicator(
+                                        value: occupancyRate,
+                                        minHeight: 8,
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        '${(occupancyRate * 100).toStringAsFixed(1)}% occupied',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodySmall,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          );
+                        },
+                      );
+                    }),
+
                     const Text(
                       'Capacity is calculated from desk and room statuses. '
                       'Active check-ins are counted separately from occupancy records. '
@@ -252,6 +412,24 @@ class DashboardScreen extends StatelessWidget {
           style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
         ),
       ),
+    );
+  }
+}
+
+class _BranchMetricRow extends StatelessWidget {
+  const _BranchMetricRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label),
+        Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
+      ],
     );
   }
 }
