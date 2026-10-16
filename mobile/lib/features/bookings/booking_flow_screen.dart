@@ -546,6 +546,19 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Booking saved successfully. ID: $bookingId')),
       );
+    } on BookingConflictException catch (error) {
+      debugPrint('Booking conflict: ${error.message}');
+
+      if (dialogContext.mounted) {
+        Navigator.of(dialogContext).pop();
+      }
+
+      if (!mounted) return;
+
+      setState(() => _isSaving = false);
+
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error.message)));
     } catch (error, stackTrace) {
       debugPrint('Booking creation failed: $error\n$stackTrace');
 

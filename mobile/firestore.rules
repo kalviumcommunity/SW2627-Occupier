@@ -1,0 +1,286 @@
+
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function twoDigits(value) {
+      return value < 10 ? '0' + string(value) : string(value);
+    }
+
+    function dateKeyFor(startTime) {
+  let istTime = startTime + duration.value(330, 'm');
+
+  return string(istTime.year()) + '-'
+    + twoDigits(istTime.month()) + '-'
+    + twoDigits(istTime.day());
+}
+
+    function scheduleIdFor(branchId, resourceType, resourceId, startTime) {
+      return branchId + '__' + resourceType + '__'
+        + resourceId + '__' + dateKeyFor(startTime);
+    }
+
+    // Branches and resources: preserve existing read permissions.
+    match /branches/{branchId} {
+      allow read: if signedIn();
+
+      match /desks/{deskId} {
+        allow read: if signedIn();
+      }
+
+      match /rooms/{roomId} {
+        allow read: if signedIn();
+      }
+    }
+
+    // User profiles: preserve existing permissions.
+    match /users/{userId} {
+      allow read: if signedIn()
+                  && request.auth.uid == userId;
+
+      allow create: if signedIn()
+                    && request.auth.uid == userId
+                    && request.resource.data.uid == userId
+                    && request.resource.data.role == 'member'
+                    && request.resource.data.keys().hasOnly([
+                      'uid',
+                      'name',
+                      'email',
+                      'role',
+                      'photoUrl',
+                      'createdAt'
+                    ]);
+
+      allow update: if signedIn()
+                    && request.auth.uid == userId
+                    && request.resource.data.diff(resource.data)
+                         .affectedKeys()
+                         .hasOnly(['name', 'photoUrl']);
+    }
+
+    // Bookings.
+    match /bookings/{bookingId} {
+
+      function scheduleMatchesBooking() {
+        let scheduleId = request.resource.data.reservationScheduleId;
+        let schedulePath =
+          /databases/$(database)/documents/booking_schedules/$(scheduleId);
+
+        return existsAfter(schedulePath)
+          && getAfter(schedulePath).data.lastBookingId == bookingId
+          && getAfter(schedulePath).data.branchId
+               == request.resource.data.branchId
+          && getAfter(schedulePath).data.resourceId
+               == request.resource.data.resourceId
+          && getAfter(schedulePath).data.resourceType
+               == request.resource.data.resourceType
+          && getAfter(schedulePath).data.dateKey
+               == dateKeyFor(request.resource.data.startTime)
+          && getAfter(schedulePath).data.reservations[bookingId].bookingId
+               == bookingId
+          && getAfter(schedulePath).data.reservations[bookingId].startTime
+               == request.resource.data.startTime
+          && getAfter(schedulePath).data.reservations[bookingId].endTime
+               == request.resource.data.endTime
+          && getAfter(schedulePath).data.reservations[bookingId].status
+               == request.resource.data.status;
+      }
+
+      allow create: if signedIn()
+
+        && request.resource.data.keys().hasAll([
+          'userId',
+          'branchId',
+          'resourceId',
+          'resourceType',
+          'startTime',
+          'endTime',
+          'status',
+          'createdAt',
+          'createdBy',
+          'reservationScheduleId'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'userId',
+          'branchId',
+          'resourceId',
+          'resourceType',
+          'startTime',
+          'endTime',
+          'status',
+          'createdAt',
+          'createdBy',
+          'reservationScheduleId'
+        ])
+
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.createdBy == request.auth.uid
+
+        && request.resource.data.branchId is string
+        && request.resource.data.resourceId is string
+        && request.resource.data.resourceType in ['desk', 'room']
+
+        && request.resource.data.status == 'confirmed'
+        && request.resource.data.startTime is timestamp
+        && request.resource.data.endTime is timestamp
+        && request.resource.data.startTime < request.resource.data.endTime
+        && request.resource.data.startTime > request.time
+        && dateKeyFor(request.resource.data.startTime)
+     == dateKeyFor(request.resource.data.endTime)
+        && request.resource.data.createdAt == request.time
+
+        // Require the canonical schedule ID for this resource and date.
+        && request.resource.data.reservationScheduleId
+             == scheduleIdFor(
+                  request.resource.data.branchId,
+                  request.resource.data.resourceType,
+                  request.resource.data.resourceId,
+                  request.resource.data.startTime
+                )
+
+        // Preserve the existing branch/resource validation.
+        && get(
+          /databases/$(database)/documents/branches/$(request.resource.data.branchId)
+        ).data.status == 'active'
+
+        && (
+          (
+            request.resource.data.resourceType == 'desk'
+            && get(
+              /databases/$(database)/documents/branches/$(request.resource.data.branchId)/desks/$(request.resource.data.resourceId)
+            ).data.status == 'available'
+          )
+          ||
+          (
+            request.resource.data.resourceType == 'room'
+            && get(
+              /databases/$(database)/documents/branches/$(request.resource.data.branchId)/rooms/$(request.resource.data.resourceId)
+            ).data.status == 'available'
+          )
+        )
+
+        // The schedule must contain this same booking after the transaction.
+        && scheduleMatchesBooking();
+
+      // Users can read only their own booking documents.
+      allow get, list: if signedIn()
+                       && resource.data.userId == request.auth.uid;
+    }
+
+    // Reservation schedules.
+    match /booking_schedules/{scheduleId} {
+
+      function validScheduleShape() {
+        return request.resource.data.keys().hasAll([
+          'branchId',
+          'resourceId',
+          'resourceType',
+          'dateKey',
+          'reservations',
+          'lastBookingId',
+          'updatedAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'branchId',
+          'resourceId',
+          'resourceType',
+          'dateKey',
+          'reservations',
+          'lastBookingId',
+          'updatedAt'
+        ])
+        && request.resource.data.branchId is string
+        && request.resource.data.resourceId is string
+        && request.resource.data.resourceType in ['desk', 'room']
+        && request.resource.data.dateKey is string
+        && request.resource.data.lastBookingId is string
+        && request.resource.data.reservations is map
+        && request.resource.data.updatedAt == request.time;
+      }
+
+      function matchesBookingAfter(bookingId) {
+        let bookingPath =
+          /databases/$(database)/documents/bookings/$(bookingId);
+        let booking = getAfter(bookingPath).data;
+        let reservation = request.resource.data.reservations[bookingId];
+
+        return existsAfter(bookingPath)
+          && booking.userId == request.auth.uid
+          && booking.createdBy == request.auth.uid
+          && booking.reservationScheduleId == scheduleId
+          && booking.branchId == request.resource.data.branchId
+          && booking.resourceId == request.resource.data.resourceId
+          && booking.resourceType == request.resource.data.resourceType
+          && booking.status == 'confirmed'
+          && scheduleId == scheduleIdFor(
+               booking.branchId,
+               booking.resourceType,
+               booking.resourceId,
+               booking.startTime
+             )
+          && request.resource.data.dateKey == dateKeyFor(booking.startTime)
+          && reservation.keys().hasAll([
+               'bookingId',
+               'startTime',
+               'endTime',
+               'status'
+             ])
+          && reservation.keys().hasOnly([
+               'bookingId',
+               'startTime',
+               'endTime',
+               'status'
+             ])
+          && reservation.bookingId == bookingId
+          && reservation.startTime == booking.startTime
+          && reservation.endTime == booking.endTime
+          && reservation.status == booking.status;
+      }
+
+      // A transaction must be able to read the known schedule document.
+      // Do not allow listing the entire schedule collection.
+      allow get: if signedIn();
+      allow list: if false;
+
+      // A new schedule can only be created with its matching booking.
+      allow create: if signedIn()
+        && validScheduleShape()
+        && request.resource.data.reservations.keys().size() == 1
+        && request.resource.data.reservations.keys()
+             .hasAll([request.resource.data.lastBookingId])
+        && matchesBookingAfter(request.resource.data.lastBookingId);
+
+      // An existing schedule may only gain one new reservation.
+      // Existing reservation entries cannot be changed or removed.
+      allow update: if signedIn()
+        && validScheduleShape()
+        && resource.data.reservations is map
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['reservations', 'lastBookingId', 'updatedAt'])
+        && request.resource.data.reservations.diff(
+             resource.data.reservations
+           ).addedKeys().hasOnly([
+             request.resource.data.lastBookingId
+           ])
+        && request.resource.data.reservations.diff(
+             resource.data.reservations
+           ).addedKeys().hasAll([
+             request.resource.data.lastBookingId
+           ])
+        && request.resource.data.reservations.diff(
+             resource.data.reservations
+           ).removedKeys().size() == 0
+        && request.resource.data.reservations.diff(
+             resource.data.reservations
+           ).changedKeys().size() == 0
+        && matchesBookingAfter(request.resource.data.lastBookingId);
+
+      allow delete: if false;
+    }
+  }
+}

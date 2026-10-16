@@ -14,16 +14,19 @@ void main() {
 
   Booking createTestBooking({
     required String userId,
+    String branchId = 'branch-001',
     String resourceId = 'desk-001',
     BookingResourceType resourceType = BookingResourceType.desk,
+    DateTime? startTime,
+    DateTime? endTime,
   }) {
     return Booking(
       userId: userId,
-      branchId: 'branch-001',
+      branchId: branchId,
       resourceId: resourceId,
       resourceType: resourceType,
-      startTime: DateTime.utc(2026, 11, 2, 9),
-      endTime: DateTime.utc(2026, 11, 2, 10),
+      startTime: startTime ?? DateTime.utc(2026, 11, 2, 9),
+      endTime: endTime ?? DateTime.utc(2026, 11, 2, 10),
       status: BookingStatus.confirmed,
       createdBy: userId,
     );
@@ -43,6 +46,7 @@ void main() {
       expect(saved.resourceId, 'desk-001');
       expect(saved.resourceType, BookingResourceType.desk);
       expect(saved.status, BookingStatus.confirmed);
+
       expect(
         saved.startTime.millisecondsSinceEpoch,
         booking.startTime.millisecondsSinceEpoch,
@@ -52,6 +56,35 @@ void main() {
         booking.endTime.millisecondsSinceEpoch,
       );
       expect(saved.createdAt, isNotNull);
+
+      final scheduleId = BookingRepository.reservationScheduleId(
+        branchId: 'branch-001',
+        resourceType: BookingResourceType.desk,
+        resourceId: 'desk-001',
+        date: booking.startTime,
+      );
+
+      final schedule = await firestore
+          .collection('booking_schedules')
+          .doc(scheduleId)
+          .get();
+
+      expect(schedule.exists, isTrue);
+      expect(schedule.data()!['branchId'], 'branch-001');
+      expect(schedule.data()!['resourceId'], 'desk-001');
+
+      final reservations = Map<String, dynamic>.from(
+        schedule.data()!['reservations'] as Map,
+      );
+
+      expect(reservations, contains(bookingId));
+
+      final reservation = Map<String, dynamic>.from(
+        reservations[bookingId] as Map,
+      );
+
+      expect(reservation['status'], 'confirmed');
+
     });
 
     test('returns null when a booking does not exist', () async {
@@ -76,6 +109,50 @@ void main() {
       expect(bookings, hasLength(1));
       expect(bookings.first.userId, 'user-001');
       expect(bookings.first.resourceId, 'desk-001');
+    });
+
+    test('rejects overlapping bookings for the same resource', () async {
+      await repository.createBooking(createTestBooking(userId: 'user-001'));
+
+      final overlappingBooking = createTestBooking(
+        userId: 'user-002',
+        startTime: DateTime.utc(2026, 11, 2, 9, 30),
+        endTime: DateTime.utc(2026, 11, 2, 10, 30),
+      );
+
+      await expectLater(
+        repository.createBooking(overlappingBooking),
+        throwsA(isA<BookingConflictException>()),
+      );
+
+      final savedBookings = await firestore.collection('bookings').get();
+      expect(savedBookings.docs, hasLength(1));
+    });
+
+    test('allows back-to-back bookings', () async {
+      await repository.createBooking(createTestBooking(userId: 'user-001'));
+
+      final nextBooking = createTestBooking(
+        userId: 'user-002',
+        startTime: DateTime.utc(2026, 11, 2, 10),
+        endTime: DateTime.utc(2026, 11, 2, 11),
+      );
+
+      await expectLater(repository.createBooking(nextBooking), completes);
+
+      final savedBookings = await firestore.collection('bookings').get();
+      expect(savedBookings.docs, hasLength(2));
+    });
+
+    test('allows the same time on a different resource', () async {
+      await repository.createBooking(createTestBooking(userId: 'user-001'));
+
+      final differentResource = createTestBooking(
+        userId: 'user-002',
+        resourceId: 'desk-002',
+      );
+
+      await expectLater(repository.createBooking(differentResource), completes);
     });
   });
 }
