@@ -14,6 +14,8 @@ class Branch {
     required this.openingTime,
     required this.closingTime,
     required this.status,
+    this.managerUid,
+    this.staffUids = const [],
     this.imageUrl,
     this.createdAt,
   });
@@ -28,6 +30,8 @@ class Branch {
   final String openingTime;
   final String closingTime;
   final BranchStatus status;
+  final String? managerUid;
+  final List<String> staffUids;
   final String? imageUrl;
   final DateTime? createdAt;
 
@@ -43,6 +47,8 @@ class Branch {
       'closingTime': closingTime,
       'status': status.name,
       'imageUrl': imageUrl,
+      'managerUid': managerUid,
+      'staffUids': staffUids,
       'createdAt': createdAt == null ? null : Timestamp.fromDate(createdAt!),
     };
   }
@@ -77,6 +83,8 @@ class Branch {
       closingTime: data['closingTime'] as String? ?? '',
       status: status,
       imageUrl: data['imageUrl'] as String?,
+      managerUid: data['managerUid'] as String?,
+      staffUids: List<String>.from(data['staffUids'] as List? ?? const []),
       createdAt: createdAtValue is Timestamp ? createdAtValue.toDate() : null,
     );
   }

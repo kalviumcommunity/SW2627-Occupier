@@ -1,0 +1,536 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function hasUserProfile() {
+      return isSignedIn()
+        && exists(
+          /databases/$(database)/documents/users/$(request.auth.uid)
+        );
+    }
+
+    function currentRole() {
+      return get(
+        /databases/$(database)/documents/users/$(request.auth.uid)
+      ).data.get('role', null);
+    }
+
+    function isAdmin() {
+      return hasUserProfile() && currentRole() == 'admin';
+    }
+
+    function isBranchManager() {
+      return hasUserProfile() && currentRole() == 'branchManager';
+    }
+
+    function isStaff() {
+      return hasUserProfile() && currentRole() == 'staff';
+    }
+
+    function isAssignedToBranch(branchId) {
+      return isSignedIn()
+        && exists(
+          /databases/$(database)/documents/branches/$(branchId)
+        )
+        && (
+          get(
+            /databases/$(database)/documents/branches/$(branchId)
+          ).data.get('managerUid', null) == request.auth.uid
+          ||
+          (
+            get(
+              /databases/$(database)/documents/branches/$(branchId)
+            ).data.get('staffUids', []) is list
+            && request.auth.uid in get(
+              /databases/$(database)/documents/branches/$(branchId)
+            ).data.get('staffUids', [])
+          )
+        );
+    }
+
+    function canManageAssignedBranch(branchId) {
+      return isAssignedToBranch(branchId)
+        && (isBranchManager() || isStaff());
+    }
+
+    function validUserDocument(userId) {
+      return request.resource.data.keys().hasOnly([
+          'uid',
+          'name',
+          'email',
+          'role',
+          'photoUrl',
+          'createdAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'uid',
+          'name',
+          'email',
+          'role'
+        ])
+        && request.resource.data.uid == userId
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 100
+        && request.resource.data.email is string
+        && request.resource.data.email.size() > 0
+        && request.resource.data.email.size() <= 254
+        && request.resource.data.role in [
+          'admin',
+          'branchManager',
+          'staff',
+          'member'
+        ]
+        && (
+          request.resource.data.get('photoUrl', null) == null
+          || (
+            request.resource.data.photoUrl is string
+            && request.resource.data.photoUrl.size() <= 2048
+          )
+        )
+        && (
+          request.resource.data.get('createdAt', null) == null
+          || request.resource.data.createdAt is timestamp
+        );
+    }
+
+    function validBookingDocument() {
+      return request.resource.data.keys().hasOnly([
+          'userId',
+          'createdBy',
+          'branchId',
+          'resourceId',
+          'resourceType',
+          'startTime',
+          'endTime',
+          'status',
+          'createdAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'userId',
+          'createdBy',
+          'branchId',
+          'resourceId',
+          'resourceType',
+          'startTime',
+          'endTime',
+          'status'
+        ])
+        && request.resource.data.userId is string
+        && request.resource.data.userId.size() > 0
+        && request.resource.data.createdBy is string
+        && request.resource.data.branchId is string
+        && request.resource.data.branchId.size() > 0
+        && request.resource.data.resourceId is string
+        && request.resource.data.resourceId.size() > 0
+        && request.resource.data.resourceType in ['desk', 'room']
+        && request.resource.data.startTime is timestamp
+        && request.resource.data.endTime is timestamp
+        && request.resource.data.startTime < request.resource.data.endTime
+        && request.resource.data.status in [
+          'pending',
+          'confirmed',
+          'cancelled',
+          'completed'
+        ]
+        && (
+          request.resource.data.get('createdAt', null) == null
+          || request.resource.data.createdAt is timestamp
+        );
+    }
+
+    function validBranchDocument() {
+      return request.resource.data.keys().hasOnly([
+          'name',
+          'address',
+          'city',
+          'contactNumber',
+          'totalDeskCapacity',
+          'totalRoomCapacity',
+          'openingTime',
+          'closingTime',
+          'status',
+          'imageUrl',
+          'managerUid',
+          'staffUids',
+          'createdAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'name',
+          'address',
+          'city',
+          'contactNumber',
+          'totalDeskCapacity',
+          'totalRoomCapacity',
+          'openingTime',
+          'closingTime',
+          'status'
+        ])
+        && request.resource.data.name is string
+        && request.resource.data.address is string
+        && request.resource.data.city is string
+        && request.resource.data.contactNumber is string
+        && request.resource.data.totalDeskCapacity is int
+        && request.resource.data.totalDeskCapacity >= 0
+        && request.resource.data.totalRoomCapacity is int
+        && request.resource.data.totalRoomCapacity >= 0
+        && request.resource.data.openingTime is string
+        && request.resource.data.closingTime is string
+        && request.resource.data.status in ['active', 'inactive']
+        && (
+          request.resource.data.get('imageUrl', null) == null
+          || request.resource.data.imageUrl is string
+        )
+        && (
+          request.resource.data.get('managerUid', null) == null
+          || request.resource.data.managerUid is string
+        )
+        && request.resource.data.get('staffUids', []) is list
+        && (
+          request.resource.data.get('createdAt', null) == null
+          || request.resource.data.createdAt is timestamp
+        );
+    }
+
+    function validDeskDocument() {
+      return request.resource.data.keys().hasOnly([
+          'name',
+          'type',
+          'floor',
+          'status',
+          'createdAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'name',
+          'type',
+          'floor',
+          'status'
+        ])
+        && request.resource.data.name is string
+        && request.resource.data.type is string
+        && request.resource.data.floor is string
+        && request.resource.data.status in [
+          'available',
+          'occupied',
+          'maintenance',
+          'inactive'
+        ]
+        && (
+          request.resource.data.get('createdAt', null) == null
+          || request.resource.data.createdAt is timestamp
+        );
+    }
+
+    function validRoomDocument() {
+      return request.resource.data.keys().hasOnly([
+          'name',
+          'capacity',
+          'floor',
+          'amenities',
+          'status',
+          'createdAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'name',
+          'capacity',
+          'floor',
+          'amenities',
+          'status'
+        ])
+        && request.resource.data.name is string
+        && request.resource.data.capacity is int
+        && request.resource.data.capacity > 0
+        && request.resource.data.floor is string
+        && request.resource.data.amenities is list
+        && request.resource.data.status in [
+          'available',
+          'occupied',
+          'maintenance',
+          'inactive'
+        ]
+        && (
+          request.resource.data.get('createdAt', null) == null
+          || request.resource.data.createdAt is timestamp
+        );
+    }
+
+    function validOccupancyDocument(occupancyId) {
+      return request.resource.data.keys().hasOnly([
+          'occupancyId',
+          'branchId',
+          'resourceId',
+          'resourceType',
+          'userId',
+          'bookingId',
+          'status',
+          'checkInTime',
+          'checkOutTime',
+          'source',
+          'createdAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'occupancyId',
+          'branchId',
+          'resourceId',
+          'resourceType',
+          'userId',
+          'bookingId',
+          'status',
+          'checkInTime',
+          'checkOutTime',
+          'source',
+          'createdAt'
+        ])
+        && request.resource.data.occupancyId == occupancyId
+        && request.resource.data.branchId is string
+        && request.resource.data.branchId.size() > 0
+        && request.resource.data.resourceId is string
+        && request.resource.data.resourceId.size() > 0
+        && request.resource.data.resourceType in ['desk', 'room']
+        && request.resource.data.userId is string
+        && request.resource.data.userId.size() > 0
+        && (
+          request.resource.data.bookingId == null
+          || request.resource.data.bookingId is string
+        )
+        && request.resource.data.status in ['active', 'completed']
+        && request.resource.data.checkInTime is timestamp
+        && (
+          request.resource.data.checkOutTime == null
+          || request.resource.data.checkOutTime is timestamp
+        )
+        && request.resource.data.source in ['booking', 'walkIn']
+        && request.resource.data.createdAt is timestamp;
+    }
+
+    function validBookingLinkedOccupancy() {
+      return request.resource.data.source == 'booking'
+        && request.resource.data.bookingId is string
+        && exists(
+          /databases/$(database)/documents/bookings/$(request.resource.data.bookingId)
+        )
+        && get(
+          /databases/$(database)/documents/bookings/$(request.resource.data.bookingId)
+        ).data.userId == request.auth.uid
+        && get(
+          /databases/$(database)/documents/bookings/$(request.resource.data.bookingId)
+        ).data.status == 'confirmed'
+        && get(
+          /databases/$(database)/documents/bookings/$(request.resource.data.bookingId)
+        ).data.branchId == request.resource.data.branchId
+        && get(
+          /databases/$(database)/documents/bookings/$(request.resource.data.bookingId)
+        ).data.resourceId == request.resource.data.resourceId
+        && get(
+          /databases/$(database)/documents/bookings/$(request.resource.data.bookingId)
+        ).data.resourceType == request.resource.data.resourceType;
+    }
+
+    function isResourceAvailable(branchId, resourceId, resourceType) {
+      return (
+          resourceType == 'desk'
+          && exists(
+            /databases/$(database)/documents/branches/$(branchId)/desks/$(resourceId)
+          )
+          && get(
+            /databases/$(database)/documents/branches/$(branchId)/desks/$(resourceId)
+          ).data.status == 'available'
+        )
+        || (
+          resourceType == 'room'
+          && exists(
+            /databases/$(database)/documents/branches/$(branchId)/rooms/$(resourceId)
+          )
+          && get(
+            /databases/$(database)/documents/branches/$(branchId)/rooms/$(resourceId)
+          ).data.status == 'available'
+        );
+    }
+
+    function isAssignedBranchOccupancy(occupancyData) {
+      return canManageAssignedBranch(occupancyData.branchId);
+    }
+
+    match /users/{userId} {
+      allow read: if isSelf(userId) || isAdmin();
+
+      allow create: if validUserDocument(userId)
+        && (
+          (isSelf(userId) && request.resource.data.role == 'member')
+          || isAdmin()
+        );
+
+      allow update: if validUserDocument(userId)
+        && request.resource.data.uid == resource.data.uid
+        && (
+          isAdmin()
+          || (
+            isSelf(userId)
+            && request.resource.data.role == resource.data.role
+            && request.resource.data.email == resource.data.email
+            && request.resource.data.get('createdAt', null)
+              == resource.data.get('createdAt', null)
+            && request.resource.data.diff(resource.data)
+              .affectedKeys().hasOnly(['name', 'photoUrl'])
+          )
+        );
+
+      allow delete: if isAdmin();
+    }
+
+    match /bookings/{bookingId} {
+      allow read: if isAdmin()
+        || (
+          isSignedIn()
+          && resource.data.userId == request.auth.uid
+        );
+
+      allow create: if isSignedIn()
+        && validBookingDocument()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.status in ['pending', 'confirmed'];
+
+      allow update: if isAdmin()
+        && validBookingDocument()
+        || (
+          isSignedIn()
+          && validBookingDocument()
+          && resource.data.userId == request.auth.uid
+          && request.resource.data.userId == resource.data.userId
+          && request.resource.data.createdBy == resource.data.createdBy
+          && request.resource.data.branchId == resource.data.branchId
+          && request.resource.data.resourceId == resource.data.resourceId
+          && request.resource.data.resourceType == resource.data.resourceType
+          && request.resource.data.startTime == resource.data.startTime
+          && request.resource.data.endTime == resource.data.endTime
+          && request.resource.data.get('createdAt', null)
+            == resource.data.get('createdAt', null)
+          && request.resource.data.diff(resource.data)
+            .affectedKeys().hasOnly(['status'])
+          && request.resource.data.status == 'cancelled'
+        );
+
+      allow delete: if isAdmin();
+    }
+
+    match /branches/{branchId} {
+      allow read: if isSignedIn();
+      allow create: if isAdmin() && validBranchDocument();
+      allow update: if isAdmin() && validBranchDocument();
+      allow delete: if isAdmin();
+
+      match /desks/{deskId} {
+        allow read: if isSignedIn();
+        allow create: if validDeskDocument()
+          && (
+            isAdmin()
+            || (isBranchManager() && isAssignedToBranch(branchId))
+          );
+        allow delete: if isAdmin()
+          || (isBranchManager() && isAssignedToBranch(branchId));
+        allow update: if (
+            isAdmin() && validDeskDocument()
+          )
+          || (
+            canManageAssignedBranch(branchId)
+            && validDeskDocument()
+            && request.resource.data.diff(resource.data)
+              .affectedKeys().hasOnly(['status'])
+            && request.resource.data.status in ['available', 'occupied']
+          );
+      }
+
+      match /rooms/{roomId} {
+        allow read: if isSignedIn();
+        allow create: if validRoomDocument()
+          && (
+            isAdmin()
+            || (isBranchManager() && isAssignedToBranch(branchId))
+          );
+        allow delete: if isAdmin()
+          || (isBranchManager() && isAssignedToBranch(branchId));
+        allow update: if (
+            isAdmin() && validRoomDocument()
+          )
+          || (
+            canManageAssignedBranch(branchId)
+            && validRoomDocument()
+            && request.resource.data.diff(resource.data)
+              .affectedKeys().hasOnly(['status'])
+            && request.resource.data.status in ['available', 'occupied']
+          );
+      }
+    }
+
+    match /occupancies/{occupancyId} {
+      allow read: if isAdmin()
+        || (
+          isSignedIn()
+          && resource.data.userId == request.auth.uid
+        )
+        || isAssignedBranchOccupancy(resource.data);
+
+      allow create: if isSignedIn()
+        && validOccupancyDocument(occupancyId)
+        && request.resource.data.status == 'active'
+        && request.resource.data.checkOutTime == null
+        && request.resource.data.checkInTime == request.time
+        && request.resource.data.createdAt == request.time
+        && isResourceAvailable(
+          request.resource.data.branchId,
+          request.resource.data.resourceId,
+          request.resource.data.resourceType
+        )
+        && (
+          (
+            request.resource.data.userId == request.auth.uid
+            && validBookingLinkedOccupancy()
+          )
+          || (
+            request.resource.data.source == 'walkIn'
+            && isAssignedBranchOccupancy(request.resource.data)
+          )
+        );
+
+      allow update: if isAdmin()
+        && validOccupancyDocument(occupancyId)
+        || (
+          isSignedIn()
+          && validOccupancyDocument(occupancyId)
+          && resource.data.status == 'active'
+          && request.resource.data.status == 'completed'
+          && request.resource.data.checkOutTime is timestamp
+          && request.resource.data.diff(resource.data)
+            .affectedKeys().hasOnly(['status', 'checkOutTime'])
+          && request.resource.data.occupancyId == resource.data.occupancyId
+          && request.resource.data.userId == resource.data.userId
+          && request.resource.data.branchId == resource.data.branchId
+          && request.resource.data.resourceId == resource.data.resourceId
+          && request.resource.data.resourceType == resource.data.resourceType
+          && request.resource.data.bookingId == resource.data.bookingId
+          && request.resource.data.checkInTime == resource.data.checkInTime
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.source == resource.data.source
+          && (
+            resource.data.userId == request.auth.uid
+            || isAssignedBranchOccupancy(resource.data)
+          )
+        );
+
+      allow delete: if isAdmin();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 
 import '../../../core/constants/app_routes.dart';
 import '../../../core/services/auth_error_handler.dart';
+import '../../../core/services/user_repository.dart';
+import '../../../models/user.dart';
 import '../../../services/auth_service.dart';
 
 class RegisterScreen extends StatefulWidget {
@@ -24,6 +26,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
 
+  final UserRepository _userRepository = UserRepository();
+
   @override
   void dispose() {
     _nameController.dispose();
@@ -39,13 +43,32 @@ class _RegisterScreenState extends State<RegisterScreen> {
     setState(() => _isLoading = true);
 
     try {
+      final name = _nameController.text.trim();
+      final email = _emailController.text.trim();
+
       final credential = await AuthService().register(
-        email: _emailController.text.trim(),
+        email: email,
         password: _passwordController.text,
       );
 
-      await credential.user?.updateDisplayName(
-        _nameController.text.trim(),
+      final user = credential.user;
+
+      if (user == null) {
+        throw StateError(
+          'Account created without a Firebase user.',
+        );
+      }
+
+      await user.updateDisplayName(name);
+
+      // Create the Firestore profile with the default member role.
+      await _userRepository.saveUser(
+        OccupierUser(
+          uid: user.uid,
+          name: name,
+          email: user.email ?? email,
+          role: UserRole.member,
+        ),
       );
 
       if (!mounted) return;
@@ -77,7 +100,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Something went wrong. Please try again.'),
+          content: Text(
+            'Something went wrong. Please try again.',
+          ),
         ),
       );
     } finally {

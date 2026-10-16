@@ -2,6 +2,15 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 enum UserRole { admin, branchManager, staff, member }
 
+extension UserRoleFirestoreValue on UserRole {
+  static UserRole fromFirestoreValue(Object? value) {
+    return UserRole.values.firstWhere(
+      (role) => role.name == value,
+      orElse: () => UserRole.member,
+    );
+  }
+}
+
 class OccupierUser {
   const OccupierUser({
     required this.uid,
@@ -26,8 +35,7 @@ class OccupierUser {
       'email': email,
       'role': role.name,
       'photoUrl': photoUrl,
-      'createdAt':
-          createdAt == null ? null : Timestamp.fromDate(createdAt!),
+      'createdAt': createdAt == null ? null : Timestamp.fromDate(createdAt!),
     };
   }
 
@@ -40,23 +48,15 @@ class OccupierUser {
       throw StateError('User document is empty');
     }
 
-    final roleValue = data['role'] as String? ?? UserRole.member.name;
-
-    final role = UserRole.values.firstWhere(
-      (value) => value.name == roleValue,
-      orElse: () => UserRole.member,
-    );
-
     final createdAtValue = data['createdAt'];
 
     return OccupierUser(
       uid: data['uid'] as String? ?? document.id,
       name: data['name'] as String? ?? '',
       email: data['email'] as String? ?? '',
-      role: role,
+      role: UserRoleFirestoreValue.fromFirestoreValue(data['role']),
       photoUrl: data['photoUrl'] as String?,
-      createdAt:
-          createdAtValue is Timestamp ? createdAtValue.toDate() : null,
+      createdAt: createdAtValue is Timestamp ? createdAtValue.toDate() : null,
     );
   }
 }

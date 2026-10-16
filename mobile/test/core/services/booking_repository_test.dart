@@ -6,10 +6,15 @@ import 'package:mobile/models/booking.dart';
 void main() {
   late FakeFirebaseFirestore firestore;
   late BookingRepository repository;
+  late String? authenticatedUserId;
 
   setUp(() {
     firestore = FakeFirebaseFirestore();
-    repository = BookingRepository(firestore: firestore);
+    authenticatedUserId = 'user-001';
+    repository = BookingRepository(
+      firestore: firestore,
+      currentUserId: () => authenticatedUserId,
+    );
   });
 
   Booking createTestBooking({
@@ -63,7 +68,11 @@ void main() {
     test('watches only bookings belonging to the requested user', () async {
       await repository.createBooking(createTestBooking(userId: 'user-001'));
 
-      await repository.createBooking(
+      final otherUserRepository = BookingRepository(
+        firestore: firestore,
+        currentUserId: () => 'user-002',
+      );
+      await otherUserRepository.createBooking(
         createTestBooking(
           userId: 'user-002',
           resourceId: 'room-001',
@@ -76,6 +85,20 @@ void main() {
       expect(bookings, hasLength(1));
       expect(bookings.first.userId, 'user-001');
       expect(bookings.first.resourceId, 'desk-001');
+    });
+
+    test('denies creating bookings for another user', () async {
+      await expectLater(
+        repository.createBooking(createTestBooking(userId: 'user-002')),
+        throwsA(isA<StateError>()),
+      );
+    });
+
+    test('denies watching another user bookings', () {
+      expect(
+        () => repository.watchUserBookings('user-002'),
+        throwsA(isA<StateError>()),
+      );
     });
   });
 }

@@ -44,5 +44,14 @@ void main() {
       expect(UserRole.values, contains(UserRole.staff));
       expect(UserRole.values, contains(UserRole.member));
     });
+
+    test('maps missing and malformed role values to ordinary member', () {
+      expect(UserRoleFirestoreValue.fromFirestoreValue(null), UserRole.member);
+      expect(UserRoleFirestoreValue.fromFirestoreValue(12), UserRole.member);
+      expect(
+        UserRoleFirestoreValue.fromFirestoreValue('unknown'),
+        UserRole.member,
+      );
+    });
   });
 }
