@@ -1,23 +1,32 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../core/services/resource_repository.dart';
 import '../../models/branch.dart';
 import '../../models/desk.dart';
 import '../../models/meeting_room.dart';
+import '../../core/services/booking_repository.dart';
+import '../../models/booking.dart';
 
 enum _ResourceKind { desk, meetingRoom }
 
 class BookingFlowScreen extends StatefulWidget {
-  BookingFlowScreen({super.key, ResourceRepository? repository})
-    : _repository = repository ?? ResourceRepository();
+  BookingFlowScreen({
+    super.key,
+    ResourceRepository? repository,
+    BookingRepository? bookingRepository,
+  }) : _repository = repository ?? ResourceRepository(),
+       _bookingRepository = bookingRepository ?? BookingRepository();
 
   final ResourceRepository _repository;
+  final BookingRepository _bookingRepository;
 
   @override
   State<BookingFlowScreen> createState() => _BookingFlowScreenState();
 }
 
 class _BookingFlowScreenState extends State<BookingFlowScreen> {
+  bool _isSaving = false;
   String? _branchId;
   String? _resourceId;
   String? _resourceName;
@@ -429,23 +438,133 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
 
     showDialog<void>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Review your selection'),
-        content: Text(
-          'Branch: ${branch.name}\n'
-          'Resource: $_resourceName\n'
-          'Date: $date\n'
-          'Start: ${_startTime!.format(context)}\n'
-          'End: ${_endTime!.format(context)}\n\n'
-          'This is a selection preview only. No booking has been saved.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Done'),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('Confirm your booking'),
+          content: Text(
+            'Branch: ${branch.name}\n'
+            'Resource: $_resourceName\n'
+            'Date: $date\n'
+            'Start: ${_startTime!.format(context)}\n'
+            'End: ${_endTime!.format(context)}\n\n'
+            'Confirm to save this booking.',
           ),
-        ],
+          actions: [
+            TextButton(
+              onPressed: _isSaving
+                  ? null
+                  : () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton.icon(
+              onPressed: _isSaving
+                  ? null
+                  : () async {
+                      setDialogState(() => _isSaving = true);
+                      await _saveBooking(branch, dialogContext);
+                    },
+              icon: _isSaving
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.check),
+              label: Text(_isSaving ? 'Saving...' : 'Confirm booking'),
+            ),
+          ],
+        ),
       ),
     );
+  }
+
+  Future<void> _saveBooking(Branch branch, BuildContext dialogContext) async {
+    final user = FirebaseAuth.instance.currentUser;
+
+    if (user == null) {
+      if (dialogContext.mounted) {
+        Navigator.of(dialogContext).pop();
+      }
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please sign in before creating a booking.'),
+        ),
+      );
+      return;
+    }
+
+    final selectedDate = _selectedDate!;
+    final selectedStart = _startTime!;
+    final selectedEnd = _endTime!;
+
+    final startDateTime = DateTime(
+      selectedDate.year,
+      selectedDate.month,
+      selectedDate.day,
+      selectedStart.hour,
+      selectedStart.minute,
+    );
+
+    final endDateTime = DateTime(
+      selectedDate.year,
+      selectedDate.month,
+      selectedDate.day,
+      selectedEnd.hour,
+      selectedEnd.minute,
+    );
+
+    try {
+      final bookingId = await widget._bookingRepository.createBooking(
+        Booking(
+          userId: user.uid,
+          branchId: branch.id,
+          resourceId: _resourceId!,
+          resourceType: _resourceKind == _ResourceKind.desk
+              ? BookingResourceType.desk
+              : BookingResourceType.room,
+          startTime: startDateTime,
+          endTime: endDateTime,
+          status: BookingStatus.confirmed,
+          createdBy: user.uid,
+        ),
+      );
+
+      if (!mounted) return;
+
+      if (dialogContext.mounted) {
+        Navigator.of(dialogContext).pop();
+      }
+
+      setState(() {
+        _isSaving = false;
+        _resetSelection();
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Booking saved successfully. ID: $bookingId')),
+      );
+    } catch (error, stackTrace) {
+      debugPrint('Booking creation failed: $error\n$stackTrace');
+
+      if (dialogContext.mounted) {
+        Navigator.of(dialogContext).pop();
+      }
+
+      if (!mounted) return;
+
+      setState(() => _isSaving = false);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Could not save booking. Check the connection and '
+            'Firestore permissions, then try again.',
+          ),
+        ),
+      );
+    }
   }
 }
