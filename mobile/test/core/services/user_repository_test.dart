@@ -6,10 +6,15 @@ import 'package:mobile/models/user.dart';
 void main() {
   late FakeFirebaseFirestore firestore;
   late UserRepository repository;
+  late String? authenticatedUserId;
 
   setUp(() {
     firestore = FakeFirebaseFirestore();
-    repository = UserRepository(firestore: firestore);
+    authenticatedUserId = 'user-123';
+    repository = UserRepository(
+      firestore: firestore,
+      currentUserId: () => authenticatedUserId,
+    );
   });
 
   const testUser = OccupierUser(
@@ -33,9 +38,17 @@ void main() {
     });
 
     test('returns null for a missing user', () async {
+      authenticatedUserId = 'missing-user';
       final user = await repository.getUser('missing-user');
 
       expect(user, isNull);
+    });
+
+    test('does not allow reading another user profile', () async {
+      await expectLater(
+        repository.getUser('other-user'),
+        throwsA(isA<StateError>()),
+      );
     });
 
     test('updates a user profile', () async {
@@ -54,13 +67,26 @@ void main() {
       expect(user.photoUrl, 'https://example.com/photo.png');
     });
 
+    test('preserves the photo URL when only the name is changed', () async {
+      await repository.saveUser(
+        const OccupierUser(
+          uid: 'user-123',
+          name: 'Test User',
+          email: 'test@example.com',
+          photoUrl: 'https://example.com/photo.png',
+        ),
+      );
+
+      await repository.updateProfile(uid: 'user-123', name: 'Updated User');
+
+      final user = await repository.getUser('user-123');
+      expect(user!.photoUrl, 'https://example.com/photo.png');
+    });
+
     test('preserves createdAt when saving an existing profile', () async {
       await repository.saveUser(testUser);
 
-      final before = await firestore
-          .collection('users')
-          .doc('user-123')
-          .get();
+      final before = await firestore.collection('users').doc('user-123').get();
 
       await repository.saveUser(
         const OccupierUser(
@@ -70,12 +96,34 @@ void main() {
         ),
       );
 
-      final after = await firestore
-          .collection('users')
-          .doc('user-123')
-          .get();
+      final after = await firestore.collection('users').doc('user-123').get();
 
       expect(after.data()!['createdAt'], before.data()!['createdAt']);
+    });
+
+    test('does not allow changing the stored role through saveUser', () async {
+      await repository.saveUser(testUser);
+
+      await expectLater(
+        repository.saveUser(
+          const OccupierUser(
+            uid: 'user-123',
+            name: 'Test User',
+            email: 'test@example.com',
+            role: UserRole.admin,
+          ),
+        ),
+        throwsA(isA<StateError>()),
+      );
+    });
+
+    test('does not allow profile updates when signed out', () async {
+      authenticatedUserId = null;
+
+      await expectLater(
+        repository.updateProfile(uid: 'user-123', name: 'Updated User'),
+        throwsA(isA<StateError>()),
+      );
     });
   });
 }

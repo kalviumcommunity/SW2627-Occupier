@@ -1,0 +1,31 @@
+{
+  "name": "sw2627-occupier",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test:rules": "firebase emulators:exec --only firestore,storage --project occupier-rules-test \"node --test tests/firestore.rules.test.cjs\""
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kalviumcommunity/SW2627-Occupier.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/kalviumcommunity/SW2627-Occupier/issues"
+  },
+  "homepage": "https://github.com/kalviumcommunity/SW2627-Occupier#readme",
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2",
+    "firebase": "^12.19.0"
+  },
+  "overrides": {
+    "@grpc/grpc-js": "^1.13.7"
+  }
+}

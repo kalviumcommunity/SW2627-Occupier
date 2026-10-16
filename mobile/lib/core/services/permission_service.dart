@@ -1,0 +1,63 @@
+import '../../models/user.dart';
+
+/// Defines the actions available to each Occupier user role.
+///
+/// These are application-level checks. Firestore security rules must
+/// independently enforce access to database operations.
+class PermissionService {
+  const PermissionService();
+
+  bool isAuthenticated(String? uid) => uid != null && uid.isNotEmpty;
+
+  bool canAccessOwnProfile({
+    required String? authenticatedUid,
+    required String profileUid,
+  }) {
+    return isAuthenticated(authenticatedUid) && authenticatedUid == profileUid;
+  }
+
+  bool isOrdinaryUser(UserRole? role) => role == UserRole.member;
+
+  bool isAdministrator(UserRole? role) => role == UserRole.admin;
+
+  bool canManageBranches(UserRole? role) {
+    return role == UserRole.admin;
+  }
+
+  bool canManageUsers(UserRole? role) {
+    return role == UserRole.admin;
+  }
+
+  bool canManageResources(UserRole? role) {
+    return role == UserRole.admin || role == UserRole.branchManager;
+  }
+
+  bool canViewOccupancy(UserRole? role) {
+    return role != null && role != UserRole.member;
+  }
+
+  bool canManageOccupancy(UserRole? role) {
+    return role == UserRole.admin ||
+        role == UserRole.branchManager ||
+        role == UserRole.staff;
+  }
+
+  bool canManageBookings(UserRole? role) {
+    return role == UserRole.admin || role == UserRole.branchManager;
+  }
+
+  bool canCreateBooking(UserRole? role) {
+    return role == UserRole.member ||
+        role == UserRole.admin ||
+        role == UserRole.branchManager ||
+        role == UserRole.staff;
+  }
+
+  bool canViewOwnProfile(UserRole? role) {
+    return role != null && UserRole.values.contains(role);
+  }
+
+  bool canAssignRoles(UserRole? role) {
+    return role == UserRole.admin;
+  }
+}
