@@ -33,35 +33,54 @@ class UserRepository {
   Future<void> saveUser(OccupierUser user) async {
     _requireOwnProfile(user.uid);
     final document = _users.doc(user.uid);
-    final existingDocument = await document.get();
 
-    if (existingDocument.exists) {
-      final existingData = existingDocument.data()!;
-      final existingRole = UserRoleFirestoreValue.fromFirestoreValue(
-        existingData['role'],
-      );
+    await _firestore.runTransaction((transaction) async {
+      final existingDocument = await transaction.get(document);
 
-      if (user.role != existingRole) {
-        throw StateError('Profile roles can only be changed by an admin.');
+      if (existingDocument.exists) {
+        final existingData = existingDocument.data();
+        if (existingData == null) {
+          throw StateError('User profile is empty.');
+        }
+
+        final existingRole = UserRoleFirestoreValue.fromFirestoreValue(
+          existingData['role'],
+        );
+
+        if (user.role != existingRole) {
+          throw StateError('Profile roles can only be changed by an admin.');
+        }
+
+        transaction.update(document, {
+          'name': user.name.trim(),
+          'photoUrl': user.photoUrl,
+        });
+        return;
       }
 
-      await document.update({
-        'name': user.name.trim(),
-        'photoUrl': user.photoUrl,
-      });
-      return;
-    }
+      if (user.role != UserRole.member) {
+        throw StateError('New profiles must use the member role.');
+      }
 
+      transaction.set(document, _newProfileData(user));
+    });
+  }
+
+  Future<void> ensureUserProfile(OccupierUser user) async {
+    _requireOwnProfile(user.uid);
     if (user.role != UserRole.member) {
       throw StateError('New profiles must use the member role.');
     }
 
-    final data = user.toFirestore()
-      ..['name'] = user.name.trim()
-      ..['role'] = UserRole.member.name
-      ..['createdAt'] = FieldValue.serverTimestamp();
+    final document = _users.doc(user.uid);
+    final data = _newProfileData(user);
 
-    await document.set(data, SetOptions(merge: true));
+    await _firestore.runTransaction((transaction) async {
+      final existingDocument = await transaction.get(document);
+      if (!existingDocument.exists) {
+        transaction.set(document, data);
+      }
+    });
   }
 
   Future<void> updateProfile({
@@ -98,5 +117,34 @@ class UserRepository {
     )) {
       throw StateError('You can access only your own profile.');
     }
+  }
+
+  Map<String, dynamic> _newProfileData(OccupierUser user) {
+    final name = user.name.trim();
+    final email = user.email.trim();
+
+    if (name.isEmpty || name.length > 100) {
+      throw ArgumentError.value(user.name, 'name', 'Must be 1-100 characters.');
+    }
+    if (email.isEmpty || email.length > 254) {
+      throw ArgumentError.value(
+        user.email,
+        'email',
+        'Must be 1-254 characters.',
+      );
+    }
+    if (user.photoUrl != null && user.photoUrl!.length > 2048) {
+      throw ArgumentError.value(
+        user.photoUrl,
+        'photoUrl',
+        'Must be at most 2048 characters.',
+      );
+    }
+
+    return user.toFirestore()
+      ..['name'] = name
+      ..['email'] = email
+      ..['role'] = UserRole.member.name
+      ..['createdAt'] = FieldValue.serverTimestamp();
   }
 }

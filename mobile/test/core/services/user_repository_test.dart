@@ -37,6 +37,37 @@ void main() {
       expect(user.role, UserRole.member);
     });
 
+    test('creates a missing profile with the member role', () async {
+      await repository.ensureUserProfile(testUser);
+
+      final user = await repository.getUser('user-123');
+
+      expect(user, isNotNull);
+      expect(user!.role, UserRole.member);
+      expect(user.name, 'Test User');
+      expect(user.email, 'test@example.com');
+    });
+
+    test('does not overwrite an existing profile or role', () async {
+      await firestore.collection('users').doc('user-123').set({
+        'uid': 'user-123',
+        'name': 'Existing Admin',
+        'email': 'admin@example.com',
+        'role': 'admin',
+      });
+
+      await repository.ensureUserProfile(testUser);
+
+      final document = await firestore
+          .collection('users')
+          .doc('user-123')
+          .get();
+
+      expect(document.data()!['name'], 'Existing Admin');
+      expect(document.data()!['email'], 'admin@example.com');
+      expect(document.data()!['role'], 'admin');
+    });
+
     test('returns null for a missing user', () async {
       authenticatedUserId = 'missing-user';
       final user = await repository.getUser('missing-user');
