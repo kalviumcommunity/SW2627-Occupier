@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 
 import '../../../core/constants/app_routes.dart';
 import '../../../core/services/auth_error_handler.dart';
+import '../../../core/services/user_repository.dart';
+import '../../../models/user.dart';
 import '../../../services/auth_service.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -16,6 +18,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final UserRepository _userRepository = UserRepository();
 
   bool _isLoading = false;
   bool _obscurePassword = true;
@@ -32,41 +35,54 @@ class _LoginScreenState extends State<LoginScreen> {
 
     setState(() => _isLoading = true);
 
+    var isAuthenticated = false;
     try {
-      await AuthService().login(
+      final credential = await AuthService().login(
         email: _emailController.text.trim(),
         password: _passwordController.text,
       );
+      isAuthenticated = true;
+      final user = credential.user;
+      if (user == null) {
+        throw StateError('Sign in completed without a Firebase user.');
+      }
 
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Login successful!'),
+      final email = user.email ?? _emailController.text.trim();
+      final displayName = user.displayName?.trim();
+      final name = displayName == null || displayName.isEmpty
+          ? email.split('@').first
+          : displayName;
+      await _userRepository.ensureUserProfile(
+        OccupierUser(
+          uid: user.uid,
+          name: name.isEmpty ? 'Occupier User' : name,
+          email: email,
         ),
       );
 
-      Navigator.pushReplacementNamed(
-        context,
-        AppRoutes.dashboard,
-      );
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Login successful!')));
+
+      Navigator.pushReplacementNamed(context, AppRoutes.dashboard);
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
 
-      final message = AuthErrorHandler.getMessage(
-        e,
-        action: AuthAction.login,
-      );
+      final message = AuthErrorHandler.getMessage(e, action: AuthAction.login);
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
     } catch (_) {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Something went wrong. Please try again.'),
+        SnackBar(
+          content: Text(
+            isAuthenticated
+                ? 'Signed in, but your profile could not be set up. Please try again.'
+                : 'Something went wrong. Please try again.',
+          ),
         ),
       );
     } finally {
@@ -90,10 +106,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const Icon(
-                      Icons.workspaces_outline,
-                      size: 64,
-                    ),
+                    const Icon(Icons.workspaces_outline, size: 64),
                     const SizedBox(height: 16),
                     Text(
                       'Welcome to Occupier',
@@ -199,14 +212,9 @@ class _LoginScreenState extends State<LoginScreen> {
                       onPressed: _isLoading
                           ? null
                           : () {
-                              Navigator.pushNamed(
-                                context,
-                                AppRoutes.register,
-                              );
+                              Navigator.pushNamed(context, AppRoutes.register);
                             },
-                      child: const Text(
-                        "Don't have an account? Register",
-                      ),
+                      child: const Text("Don't have an account? Register"),
                     ),
                   ],
                 ),

@@ -1,4 +1,3 @@
-
 import 'dart:io';
 
 import 'package:firebase_auth/firebase_auth.dart';
@@ -8,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../../core/services/user_repository.dart';
 import '../../../models/user.dart';
+import '../../../services/auth_service.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -26,6 +26,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _isEditing = false;
   bool _isSaving = false;
   bool _isUploadingPhoto = false;
+  bool _isLoggingOut = false;
 
   String? _selectedPhotoPath;
   String? _updatedPhotoUrl;
@@ -44,19 +45,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
 
     final profile = await _userRepository.getUser(firebaseUser.uid);
-
-    if (profile != null) {
-      return profile;
-    }
-
-    return OccupierUser(
-      uid: firebaseUser.uid,
-      name: firebaseUser.displayName ?? '',
-      email: firebaseUser.email ?? '',
-      photoUrl: firebaseUser.photoURL,
-    );
+    return profile;
   }
 
+  Future<void> _logout() async {
+    if (_isLoggingOut) return;
+    setState(() => _isLoggingOut = true);
+
+    try {
+      await AuthService().logout();
+    } catch (_) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Unable to log out. Please try again.')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isLoggingOut = false);
+      }
+    }
+  }
 
   Future<void> _saveProfile() async {
     final firebaseUser = FirebaseAuth.instance.currentUser;
@@ -67,9 +76,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
 
     if (name.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter your name.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Please enter your name.')));
       return;
     }
 
@@ -103,9 +112,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Profile updated successfully.'),
-        ),
+        const SnackBar(content: Text('Profile updated successfully.')),
       );
     } catch (error) {
       if (!mounted) return;
@@ -114,9 +121,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-            'Unable to update profile. Please try again.',
-          ),
+          content: Text('Unable to update profile. Please try again.'),
         ),
       );
     }
@@ -166,9 +171,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-            'Photo uploaded. Press Save to update your profile.',
-          ),
+          content: Text('Photo uploaded. Press Save to update your profile.'),
         ),
       );
     } catch (error) {
@@ -181,9 +184,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-            'Photo upload failed. Check Firebase Storage setup.',
-          ),
+          content: Text('Photo upload failed. Check Firebase Storage setup.'),
         ),
       );
     }
@@ -209,34 +210,57 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('My Profile'),
+        actions: [
+          IconButton(
+            tooltip: 'Log out',
+            onPressed: _isLoggingOut ? null : _logout,
+            icon: _isLoggingOut
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.logout),
+          ),
+        ],
       ),
       body: FutureBuilder<OccupierUser?>(
         future: _profileFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(
-              child: CircularProgressIndicator(),
-            );
+            return const Center(child: CircularProgressIndicator());
           }
 
           if (snapshot.hasError) {
             return const Center(
-              child: Text(
-                'Unable to load your profile. Please try again.',
-              ),
+              child: Text('Unable to load your profile. Please try again.'),
             );
           }
 
           final profile = snapshot.data;
 
           if (profile == null) {
-            return const Center(
-              child: Text('Please log in to view your profile.'),
+            return Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('Your profile is unavailable.'),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      setState(() {
+                        _profileFuture = _loadProfile();
+                      });
+                    },
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Try again'),
+                  ),
+                ],
+              ),
             );
           }
 
-          final currentPhotoUrl =
-              _updatedPhotoUrl ?? profile.photoUrl;
+          final currentPhotoUrl = _updatedPhotoUrl ?? profile.photoUrl;
 
           return Center(
             child: SingleChildScrollView(
@@ -252,10 +276,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         backgroundImage: _selectedPhotoPath != null
                             ? FileImage(File(_selectedPhotoPath!))
                             : currentPhotoUrl != null &&
-                                    currentPhotoUrl.isNotEmpty
-                                ? NetworkImage(currentPhotoUrl)
-                                : null,
-                        child: _selectedPhotoPath == null &&
+                                  currentPhotoUrl.isNotEmpty
+                            ? NetworkImage(currentPhotoUrl)
+                            : null,
+                        child:
+                            _selectedPhotoPath == null &&
                                 (currentPhotoUrl == null ||
                                     currentPhotoUrl.isEmpty)
                             ? const Icon(Icons.person, size: 52)
@@ -263,10 +288,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                       if (_isEditing)
                         IconButton.filled(
-                          onPressed:
-                              _isUploadingPhoto || _isSaving
-                                  ? null
-                                  : _pickAndUploadPhoto,
+                          onPressed: _isUploadingPhoto || _isSaving
+                              ? null
+                              : _pickAndUploadPhoto,
                           tooltip: 'Change profile photo',
                           icon: const Icon(Icons.camera_alt),
                         ),
@@ -295,12 +319,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     )
                   else
                     Text(
-                      profile.name.isEmpty
-                          ? 'Occupier User'
-                          : profile.name,
-                      style: Theme.of(context)
-                          .textTheme
-                          .headlineSmall,
+                      profile.name.isEmpty ? 'Occupier User' : profile.name,
+                      style: Theme.of(context).textTheme.headlineSmall,
                       textAlign: TextAlign.center,
                     ),
 

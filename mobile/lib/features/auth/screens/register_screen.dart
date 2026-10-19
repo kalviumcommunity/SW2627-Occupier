@@ -1,4 +1,3 @@
-
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
@@ -42,6 +41,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     setState(() => _isLoading = true);
 
+    var accountCreated = false;
     try {
       final name = _nameController.text.trim();
       final email = _emailController.text.trim();
@@ -50,19 +50,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
         email: email,
         password: _passwordController.text,
       );
+      accountCreated = true;
 
       final user = credential.user;
 
       if (user == null) {
-        throw StateError(
-          'Account created without a Firebase user.',
-        );
+        throw StateError('Account created without a Firebase user.');
       }
 
       await user.updateDisplayName(name);
 
-      // Create the Firestore profile with the default member role.
-      await _userRepository.saveUser(
+      await _userRepository.ensureUserProfile(
         OccupierUser(
           uid: user.uid,
           name: name,
@@ -74,9 +72,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Account created successfully!'),
-        ),
+        const SnackBar(content: Text('Account created successfully!')),
       );
 
       Navigator.pushNamedAndRemoveUntil(
@@ -93,15 +89,23 @@ class _RegisterScreenState extends State<RegisterScreen> {
       );
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
+        SnackBar(
+          content: Text(
+            accountCreated
+                ? 'Your account was created, but profile setup failed. Please sign in to finish setup.'
+                : message,
+          ),
+        ),
       );
     } catch (_) {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text(
-            'Something went wrong. Please try again.',
+            accountCreated
+                ? 'Your account was created, but profile setup failed. Please sign in to finish setup.'
+                : 'Something went wrong. Please try again.',
           ),
         ),
       );
@@ -115,9 +119,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Create Account'),
-      ),
+      appBar: AppBar(title: const Text('Create Account')),
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
@@ -152,6 +154,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       validator: (value) {
                         if (value == null || value.trim().isEmpty) {
                           return 'Full name is required.';
+                        }
+                        if (value.trim().length > 100) {
+                          return 'Full name must be 100 characters or fewer.';
                         }
                         return null;
                       },
@@ -281,9 +286,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                 AppRoutes.login,
                               );
                             },
-                      child: const Text(
-                        'Already have an account? Login',
-                      ),
+                      child: const Text('Already have an account? Login'),
                     ),
                   ],
                 ),
