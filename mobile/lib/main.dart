@@ -14,6 +14,9 @@ import 'features/auth/screens/forgot_password_screen.dart';
 import 'features/profile/screens/profile_screen.dart';
 import 'features/bookings/booking_flow_screen.dart';
 import 'firebase_options.dart';
+import 'features/bookings/my_bookings_screen.dart';
+
+
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -59,6 +62,7 @@ class _OccupierAppState extends State<OccupierApp> {
     AppRoutes.bookings,
     AppRoutes.occupancy,
     AppRoutes.profile,
+    AppRoutes.myBookings,
   };
 
   @override
@@ -194,6 +198,7 @@ class _OccupierAppState extends State<OccupierApp> {
     AppRoutes.occupancy: (_) => const PlaceholderScreen(title: 'Occupancy'),
     AppRoutes.profile: (_) => const ProfileScreen(),
     ...?widget.routeBuilders,
+    AppRoutes.myBookings: (_) => const MyBookingsScreen(),
   };
 
   @override

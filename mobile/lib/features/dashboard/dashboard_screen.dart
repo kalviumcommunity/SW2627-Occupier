@@ -11,6 +11,7 @@ import '../../models/user.dart';
 import '../../services/occupancy_service.dart';
 import '../../core/services/occupancy_repository.dart';
 import '../../models/occupancy.dart';
+import '../../core/constants/app_routes.dart';
 
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
@@ -64,7 +65,18 @@ class DashboardScreen extends StatelessWidget {
     final occupancyRepository = OccupancyRepository();
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Occupancy Dashboard')),
+      appBar: AppBar(
+  title: const Text('Occupancy Dashboard'),
+  actions: [
+    IconButton(
+      tooltip: 'My Bookings',
+      icon: const Icon(Icons.event_note),
+      onPressed: () {
+        Navigator.pushNamed(context, AppRoutes.myBookings);
+      },
+    ),
+  ],
+),
       body: StreamBuilder<List<Branch>>(
         stream: repository.watchBranches(),
         builder: (context, branchSnapshot) {
