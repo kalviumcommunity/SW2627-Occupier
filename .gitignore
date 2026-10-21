@@ -1,1 +1,5 @@
 .idea/
+firestore-debug.log
+
+# Node.js dependencies
+node_modules/

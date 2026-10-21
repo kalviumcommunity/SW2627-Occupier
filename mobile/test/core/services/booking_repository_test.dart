@@ -6,10 +6,16 @@ import 'package:mobile/models/booking.dart';
 void main() {
   late FakeFirebaseFirestore firestore;
   late BookingRepository repository;
+  late String? authenticatedUserId;
 
   setUp(() {
     firestore = FakeFirebaseFirestore();
-    repository = BookingRepository(firestore: firestore);
+    authenticatedUserId = 'user-001';
+
+    repository = BookingRepository(
+      firestore: firestore,
+      currentUserId: () => authenticatedUserId,
+    );
   });
 
   Booking createTestBooking({
@@ -84,7 +90,6 @@ void main() {
       );
 
       expect(reservation['status'], 'confirmed');
-
     });
 
     test('returns null when a booking does not exist', () async {
@@ -94,9 +99,16 @@ void main() {
     });
 
     test('watches only bookings belonging to the requested user', () async {
-      await repository.createBooking(createTestBooking(userId: 'user-001'));
-
       await repository.createBooking(
+        createTestBooking(userId: 'user-001'),
+      );
+
+      final otherUserRepository = BookingRepository(
+        firestore: firestore,
+        currentUserId: () => 'user-002',
+      );
+
+      await otherUserRepository.createBooking(
         createTestBooking(
           userId: 'user-002',
           resourceId: 'room-001',
@@ -104,7 +116,9 @@ void main() {
         ),
       );
 
-      final bookings = await repository.watchUserBookings('user-001').first;
+      final bookings = await repository
+          .watchUserBookings('user-001')
+          .first;
 
       expect(bookings, hasLength(1));
       expect(bookings.first.userId, 'user-001');
@@ -112,10 +126,14 @@ void main() {
     });
 
     test('rejects overlapping bookings for the same resource', () async {
-      await repository.createBooking(createTestBooking(userId: 'user-001'));
+      await repository.createBooking(
+        createTestBooking(userId: 'user-001'),
+      );
 
+      // Use the authenticated user so the authorization check passes
+      // and this test exercises the overlap-prevention logic.
       final overlappingBooking = createTestBooking(
-        userId: 'user-002',
+        userId: 'user-001',
         startTime: DateTime.utc(2026, 11, 2, 9, 30),
         endTime: DateTime.utc(2026, 11, 2, 10, 30),
       );
@@ -125,34 +143,72 @@ void main() {
         throwsA(isA<BookingConflictException>()),
       );
 
-      final savedBookings = await firestore.collection('bookings').get();
+      final savedBookings = await firestore
+          .collection('bookings')
+          .get();
+
       expect(savedBookings.docs, hasLength(1));
     });
 
     test('allows back-to-back bookings', () async {
-      await repository.createBooking(createTestBooking(userId: 'user-001'));
+      await repository.createBooking(
+        createTestBooking(userId: 'user-001'),
+      );
 
       final nextBooking = createTestBooking(
-        userId: 'user-002',
+        userId: 'user-001',
         startTime: DateTime.utc(2026, 11, 2, 10),
         endTime: DateTime.utc(2026, 11, 2, 11),
       );
 
-      await expectLater(repository.createBooking(nextBooking), completes);
+      await expectLater(
+        repository.createBooking(nextBooking),
+        completes,
+      );
 
-      final savedBookings = await firestore.collection('bookings').get();
+      final savedBookings = await firestore
+          .collection('bookings')
+          .get();
+
       expect(savedBookings.docs, hasLength(2));
     });
 
     test('allows the same time on a different resource', () async {
-      await repository.createBooking(createTestBooking(userId: 'user-001'));
+      await repository.createBooking(
+        createTestBooking(userId: 'user-001'),
+      );
 
       final differentResource = createTestBooking(
-        userId: 'user-002',
+        userId: 'user-001',
         resourceId: 'desk-002',
       );
 
-      await expectLater(repository.createBooking(differentResource), completes);
+      await expectLater(
+        repository.createBooking(differentResource),
+        completes,
+      );
+
+      final savedBookings = await firestore
+          .collection('bookings')
+          .get();
+
+      expect(savedBookings.docs, hasLength(2));
+    });
+
+    test('denies creating bookings for another user', () async {
+      await expectLater(
+        repository.createBooking(
+          createTestBooking(userId: 'user-002'),
+        ),
+        throwsA(isA<StateError>()),
+      );
+    });
+
+    test('denies watching another user bookings', () {
+      expect(
+        () => repository.watchUserBookings('user-002'),
+        throwsA(isA<StateError>()),
+      );
     });
   });
 }

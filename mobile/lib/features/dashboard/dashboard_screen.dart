@@ -1,9 +1,13 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/services/permission_service.dart';
 import '../../core/services/resource_repository.dart';
+import '../../core/services/user_repository.dart';
 import '../../models/branch.dart';
 import '../../models/desk.dart';
 import '../../models/meeting_room.dart';
+import '../../models/user.dart';
 import '../../services/occupancy_service.dart';
 import '../../core/services/occupancy_repository.dart';
 import '../../models/occupancy.dart';
@@ -13,6 +17,48 @@ class DashboardScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      return const Scaffold(
+        body: Center(child: Text('Please log in to view the dashboard.')),
+      );
+    }
+
+    return FutureBuilder<OccupierUser?>(
+      future: UserRepository().getUser(uid),
+      builder: (context, profileSnapshot) {
+        if (profileSnapshot.hasError) {
+          return const Scaffold(
+            body: Center(child: Text('Unable to load your access profile.')),
+          );
+        }
+
+        if (profileSnapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        final profile = profileSnapshot.data;
+        if (profile == null) {
+          return const Scaffold(
+            body: Center(child: Text('Your profile is unavailable.')),
+          );
+        }
+
+        const permissions = PermissionService();
+        return _buildDashboard(
+          context,
+          canReadAllOccupancies: permissions.isAdministrator(profile.role),
+        );
+      },
+    );
+  }
+
+  Widget _buildDashboard(
+    BuildContext context, {
+    required bool canReadAllOccupancies,
+  }) {
     final repository = ResourceRepository();
     final occupancyService = OccupancyService();
     final occupancyRepository = OccupancyRepository();
@@ -47,6 +93,7 @@ class DashboardScreen extends StatelessWidget {
             occupancyRepository,
             occupancyService,
             branches,
+            canReadAllOccupancies,
           );
         },
       ),
@@ -59,6 +106,7 @@ class DashboardScreen extends StatelessWidget {
     OccupancyRepository occupancyRepository,
     OccupancyService occupancyService,
     List<Branch> branches,
+    bool canReadAllOccupancies,
   ) {
     return StreamBuilder<List<Desk>>(
       stream: _watchAllDesks(repository, branches),
@@ -124,7 +172,9 @@ class DashboardScreen extends StatelessWidget {
             );
 
             return StreamBuilder<List<Occupancy>>(
-              stream: occupancyRepository.watchActiveOccupancies(),
+              stream: canReadAllOccupancies
+                  ? occupancyRepository.watchActiveOccupancies()
+                  : Stream.value(const <Occupancy>[]),
               builder: (context, occupancySnapshot) {
                 if (occupancySnapshot.hasError) {
                   return const Center(
@@ -155,10 +205,11 @@ class DashboardScreen extends StatelessWidget {
                       'Available Capacity',
                       availableCapacity.toString(),
                     ),
-                    _buildStatCard(
-                      'Active Check-ins',
-                      activeOccupancies.length.toString(),
-                    ),
+                    if (canReadAllOccupancies)
+                      _buildStatCard(
+                        'Active Check-ins',
+                        activeOccupancies.length.toString(),
+                      ),
                     const SizedBox(height: 20),
                     Text(
                       'Occupancy Rate: ${occupancyRate.toStringAsFixed(1)}%',
@@ -332,10 +383,14 @@ class DashboardScreen extends StatelessWidget {
                       );
                     }),
 
-                    const Text(
-                      'Capacity is calculated from desk and room statuses. '
-                      'Active check-ins are counted separately from occupancy records. '
-                      'Occupied meeting rooms count at their full seat capacity.',
+                    Text(
+                      canReadAllOccupancies
+                          ? 'Capacity is calculated from desk and room statuses. '
+                                'Active check-ins are counted separately from occupancy records. '
+                                'Occupied meeting rooms count at their full seat capacity.'
+                          : 'Capacity is calculated from desk and room statuses. '
+                                'Active check-in records are restricted to administrators. '
+                                'Occupied meeting rooms count at their full seat capacity.',
                     ),
                   ],
                 );

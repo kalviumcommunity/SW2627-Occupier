@@ -1,5 +1,7 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import 'permission_service.dart';
 import '../../models/booking.dart';
 
 /// Thrown when a resource is already booked for an overlapping time.
@@ -17,10 +19,17 @@ class BookingConflictException implements Exception {
 }
 
 class BookingRepository {
-  BookingRepository({FirebaseFirestore? firestore})
-    : _firestore = firestore ?? FirebaseFirestore.instance;
+  BookingRepository({
+    FirebaseFirestore? firestore,
+    String? Function()? currentUserId,
+  }) : _firestore = firestore ?? FirebaseFirestore.instance,
+       _currentUserId =
+           currentUserId ?? (() => FirebaseAuth.instance.currentUser?.uid);
 
   final FirebaseFirestore _firestore;
+  final String? Function() _currentUserId;
+
+  static const PermissionService _permissions = PermissionService();
 
   CollectionReference<Map<String, dynamic>> get _bookings =>
       _firestore.collection('bookings');
@@ -30,7 +39,7 @@ class BookingRepository {
 
   static const Set<String> _blockingStatuses = {'pending', 'confirmed'};
 
-  /// Produces a predictable schedule document ID.
+  /// Produces a predictable schedule document ID using the IST calendar date.
   ///
   /// Example:
   /// jaipur-central__desk__desk-001__2026-11-02
@@ -55,6 +64,17 @@ class BookingRepository {
   ///
   /// Returns the generated booking document ID.
   Future<String> createBooking(Booking booking) async {
+    // Preserve main's authorization checks.
+    final currentUserId = _currentUserId();
+
+    if (!_permissions.canAccessOwnProfile(
+          authenticatedUid: currentUserId,
+          profileUid: booking.userId,
+        ) ||
+        booking.createdBy != currentUserId) {
+      throw StateError('Bookings can only be created for the signed-in user.');
+    }
+
     final start = booking.startTime;
     final end = booking.endTime;
 
@@ -62,8 +82,6 @@ class BookingRepository {
       throw ArgumentError('Booking end time must be after start time.');
     }
 
-    // The current booking flow selects start and end times on the same day.
-    // Each schedule document represents one resource on one calendar date.
     // Each booking must start and end on the same IST calendar date.
     if (_dateKey(start) != _dateKey(end)) {
       throw ArgumentError(
@@ -90,6 +108,7 @@ class BookingRepository {
       if (scheduleSnapshot.exists) {
         final scheduleData = scheduleSnapshot.data();
 
+        // Do not reuse a schedule belonging to another resource or date.
         if (scheduleData == null ||
             scheduleData['branchId'] != booking.branchId ||
             scheduleData['resourceId'] != booking.resourceId ||
@@ -164,7 +183,7 @@ class BookingRepository {
       final bookingData = booking.toFirestore();
       bookingData['createdAt'] = FieldValue.serverTimestamp();
 
-      // Internal reference linking the booking to its schedule.
+      // Link the booking to its reservation schedule.
       bookingData['reservationScheduleId'] = scheduleId;
 
       final updatedReservations = <String, Map<String, dynamic>>{
@@ -172,8 +191,8 @@ class BookingRepository {
         bookingRef.id: newReservation,
       };
 
-      // Both writes commit atomically. Concurrent transactions that
-      // modify this schedule are retried by Firestore.
+      // Both writes commit atomically. Concurrent transactions that modify
+      // the same schedule are retried by Firestore.
       transaction.set(bookingRef, bookingData);
 
       transaction.set(scheduleRef, {
@@ -223,6 +242,13 @@ class BookingRepository {
 
   /// Streams bookings belonging to one user.
   Stream<List<Booking>> watchUserBookings(String userId) {
+    if (!_permissions.canAccessOwnProfile(
+      authenticatedUid: _currentUserId(),
+      profileUid: userId,
+    )) {
+      throw StateError('You can access only your own bookings.');
+    }
+
     return _bookings
         .where('userId', isEqualTo: userId)
         .snapshots()
