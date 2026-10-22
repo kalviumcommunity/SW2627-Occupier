@@ -158,6 +158,61 @@ async function writeBooking(db, bookingId = 'booking-1', overrides = {}) {
   await batch.commit();
 }
 
+async function cancelBookingAtomically(
+  db,
+  bookingId = 'booking-1',
+  { readDb = db } = {},
+) {
+  const bookingRef = doc(readDb, 'bookings', bookingId);
+  const bookingSnapshot = await getDoc(bookingRef);
+
+  if (!bookingSnapshot.exists()) {
+    throw new Error(`Booking ${bookingId} was not found.`);
+  }
+
+  const booking = bookingSnapshot.data();
+  const scheduleId = booking.reservationScheduleId;
+
+  const scheduleRef = doc(readDb, 'booking_schedules', scheduleId);
+  const scheduleSnapshot = await getDoc(scheduleRef);
+
+  if (!scheduleSnapshot.exists()) {
+    throw new Error(`Schedule ${scheduleId} was not found.`);
+  }
+
+  const schedule = scheduleSnapshot.data();
+  const currentReservation = schedule.reservations?.[bookingId];
+
+  if (!currentReservation) {
+    throw new Error(`Reservation ${bookingId} was not found.`);
+  }
+
+  const reservations = {
+    ...schedule.reservations,
+    [bookingId]: {
+      ...currentReservation,
+      status: 'cancelled',
+    },
+  };
+
+  // Use one atomic batch for both document updates.
+  // `db` is the identity performing the writes; `readDb` can be
+  // the owner's context when testing an unauthorized user's attempt.
+  const batch = writeBatch(db);
+
+  batch.update(doc(db, 'bookings', bookingId), {
+    status: 'cancelled',
+  });
+
+  batch.update(doc(db, 'booking_schedules', scheduleId), {
+    reservations,
+    lastBookingId: bookingId,
+    updatedAt: serverTimestamp(),
+  });
+
+  await batch.commit();
+}
+
 function validBranch(overrides = {}) {
   return {
     name: 'Branch Two',
@@ -392,13 +447,58 @@ test('denies users from creating or changing unauthorized bookings', async () =>
   );
 
   await writeBooking(db);
-  await assertSucceeds(
-    updateDoc(doc(db, 'bookings', 'booking-1'), { status: 'cancelled' }),
-  );
+
+// A booking cannot be cancelled without updating its schedule atomically.
+await assertFails(
+  updateDoc(doc(db, 'bookings', 'booking-1'), { status: 'cancelled' }),
+);
   await assertFails(
     updateDoc(doc(db, 'bookings', 'booking-1'), {
       status: 'cancelled',
       userId: 'other-user',
+    }),
+  );
+});
+
+test('booking owner can atomically cancel a booking and its reservation', async () => {
+  const db = testEnv.authenticatedContext('member-1').firestore();
+
+  await writeBooking(db);
+
+  await assertSucceeds(cancelBookingAtomically(db, 'booking-1'));
+
+  const bookingSnapshot = await getDoc(
+    doc(db, 'bookings', 'booking-1'),
+  );
+
+  if (bookingSnapshot.data()?.status !== 'cancelled') {
+    throw new Error('Booking status was not updated to cancelled.');
+  }
+
+  const scheduleId = bookingSnapshot.data().reservationScheduleId;
+  const scheduleSnapshot = await getDoc(
+    doc(db, 'booking_schedules', scheduleId),
+  );
+
+  if (
+    scheduleSnapshot.data()?.reservations?.['booking-1']?.status !==
+    'cancelled'
+  ) {
+    throw new Error('Schedule reservation status was not updated.');
+  }
+});
+
+test('another user cannot atomically cancel someone else booking', async () => {
+  const ownerDb = testEnv.authenticatedContext('member-1').firestore();
+  const otherUserDb = testEnv.authenticatedContext('member-2').firestore();
+
+  await writeBooking(ownerDb);
+
+  // Read the existing records as the owner, but attempt both writes
+  // under member-2's identity.
+  await assertFails(
+    cancelBookingAtomically(otherUserDb, 'booking-1', {
+      readDb: ownerDb,
     }),
   );
 });
