@@ -1,5 +1,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
+const assert = require('node:assert/strict');
 const {
   initializeTestEnvironment,
   assertSucceeds,
@@ -15,6 +16,7 @@ const {
   serverTimestamp,
   updateDoc,
   where,
+  writeBatch,
 } = require('firebase/firestore');
 const { getBytes, ref, uploadBytes } = require('firebase/storage');
 const { test, before, after, beforeEach } = require('node:test');
@@ -27,6 +29,16 @@ const firestoreRules = fs.readFileSync(
 const storageRules = fs.readFileSync(
   path.resolve(__dirname, '..', 'storage.rules'),
   'utf8',
+);
+const mobileFirestoreRules = fs.readFileSync(
+  path.resolve(__dirname, '..', 'mobile', 'firestore.rules'),
+  'utf8',
+);
+const rootFirebaseConfig = JSON.parse(
+  fs.readFileSync(path.resolve(__dirname, '..', 'firebase.json'), 'utf8'),
+);
+const mobileFirebaseConfig = JSON.parse(
+  fs.readFileSync(path.resolve(__dirname, '..', 'mobile', 'firebase.json'), 'utf8'),
 );
 
 let testEnv;
@@ -51,6 +63,12 @@ after(async () => {
   await testEnv.cleanup();
 });
 
+test('Firebase configurations point to identical Firestore rules', () => {
+  assert.equal(rootFirebaseConfig.firestore.rules, 'firestore.rules');
+  assert.equal(mobileFirebaseConfig.firestore.rules, 'firestore.rules');
+  assert.equal(mobileFirestoreRules, firestoreRules);
+});
+
 beforeEach(async () => {
   await testEnv.clearFirestore();
   await testEnv.withSecurityRulesDisabled(async (context) => {
@@ -63,6 +81,15 @@ beforeEach(async () => {
       photoUrl: null,
     });
     await setDoc(doc(db, 'branches', 'branch-1'), {
+      name: 'Branch One',
+      address: '1 Example Street',
+      city: 'Example City',
+      contactNumber: '123456789',
+      totalDeskCapacity: 10,
+      totalRoomCapacity: 2,
+      openingTime: '09:00',
+      closingTime: '18:00',
+      status: 'active',
       managerUid: 'manager-1',
       staffUids: ['staff-1'],
     });
@@ -76,16 +103,73 @@ beforeEach(async () => {
 });
 
 function validBooking(overrides = {}) {
-  return {
+  const startTime = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  startTime.setUTCHours(10, 0, 0, 0);
+  const booking = {
     userId: 'member-1',
     createdBy: 'member-1',
     branchId: 'branch-1',
     resourceId: 'desk-1',
     resourceType: 'desk',
     status: 'confirmed',
-    startTime: new Date('2026-10-20T10:00:00Z'),
-    endTime: new Date('2026-10-20T11:00:00Z'),
-    createdAt: new Date('2026-10-16T10:00:00Z'),
+    startTime,
+    endTime: new Date(startTime.getTime() + 60 * 60 * 1000),
+    ...overrides,
+  };
+  const dateKey = new Date(
+    booking.startTime.getTime() + 330 * 60 * 1000,
+  ).toISOString().slice(0, 10);
+
+  return {
+    ...booking,
+    reservationScheduleId:
+      booking.reservationScheduleId ??
+      `${booking.branchId}__${booking.resourceType}__${booking.resourceId}__${dateKey}`,
+  };
+}
+
+async function writeBooking(db, bookingId = 'booking-1', overrides = {}) {
+  const booking = validBooking(overrides);
+  const batch = writeBatch(db);
+  const bookingRef = doc(db, 'bookings', bookingId);
+  const scheduleRef = doc(
+    db,
+    'booking_schedules',
+    booking.reservationScheduleId,
+  );
+
+  batch.set(bookingRef, { ...booking, createdAt: serverTimestamp() });
+  batch.set(scheduleRef, {
+    branchId: booking.branchId,
+    resourceId: booking.resourceId,
+    resourceType: booking.resourceType,
+    dateKey: booking.reservationScheduleId.split('__').pop(),
+    reservations: {
+      [bookingId]: {
+        bookingId,
+        startTime: booking.startTime,
+        endTime: booking.endTime,
+        status: booking.status,
+      },
+    },
+    lastBookingId: bookingId,
+    updatedAt: serverTimestamp(),
+  });
+  await batch.commit();
+}
+
+function validBranch(overrides = {}) {
+  return {
+    name: 'Branch Two',
+    address: '2 Example Street',
+    city: 'Example City',
+    contactNumber: '123456789',
+    totalDeskCapacity: 10,
+    totalRoomCapacity: 2,
+    openingTime: '09:00',
+    closingTime: '18:00',
+    status: 'active',
+    staffUids: [],
     ...overrides,
   };
 }
@@ -200,16 +284,20 @@ test('fails closed for missing and invalid profile role data', async () => {
 
   const missingRoleDb = testEnv.authenticatedContext('no-role').firestore();
   const invalidRoleDb = testEnv.authenticatedContext('invalid-role').firestore();
-  const target = 'branches/branch-1';
 
-  await assertFails(setDoc(doc(missingRoleDb, target), { name: 'Changed' }));
-  await assertFails(setDoc(doc(invalidRoleDb, target), { name: 'Changed' }));
+  await assertFails(
+    setDoc(doc(missingRoleDb, 'branches', 'branch-2'), validBranch()),
+  );
+  await assertFails(
+    setDoc(doc(invalidRoleDb, 'branches', 'branch-2'), validBranch()),
+  );
 });
 
 test('allows a user to create and query only their own bookings', async () => {
   const db = testEnv.authenticatedContext('member-1').firestore();
+  const booking = validBooking();
 
-  await assertSucceeds(setDoc(doc(db, 'bookings', 'booking-1'), validBooking()));
+  await assertSucceeds(writeBooking(db, 'booking-1', booking));
   const ownBookings = await assertSucceeds(
     getDocs(
       query(
@@ -222,6 +310,57 @@ test('allows a user to create and query only their own bookings', async () => {
     throw new Error(`Expected one own booking, got ${ownBookings.size}`);
   }
   await assertFails(getDoc(doc(db, 'bookings', 'someone-elses-booking')));
+  await assertSucceeds(
+    getDoc(
+      doc(
+        db,
+        'booking_schedules',
+        booking.reservationScheduleId,
+      ),
+    ),
+  );
+  await assertFails(getDocs(collection(db, 'booking_schedules')));
+
+  const otherUserDb = testEnv.authenticatedContext('member-2').firestore();
+  await assertFails(getDoc(doc(otherUserDb, 'bookings', 'booking-1')));
+});
+
+test('ordinary users can query only their own occupancy records', async () => {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(
+      doc(db, 'occupancies', 'member-occupancy'),
+      validOccupancy({ userId: 'member-1' }),
+    );
+    await setDoc(
+      doc(db, 'occupancies', 'other-occupancy'),
+      validOccupancy({
+        occupancyId: 'other-occupancy',
+        userId: 'member-2',
+      }),
+    );
+  });
+
+  const db = testEnv.authenticatedContext('member-1').firestore();
+  const ownOccupancies = await assertSucceeds(
+    getDocs(
+      query(
+        collection(db, 'occupancies'),
+        where('status', '==', 'active'),
+        where('userId', '==', 'member-1'),
+      ),
+    ),
+  );
+
+  assert.equal(ownOccupancies.size, 1);
+  await assertFails(
+    getDocs(
+      query(
+        collection(db, 'occupancies'),
+        where('status', '==', 'active'),
+      ),
+    ),
+  );
 });
 
 test('denies users from creating or changing unauthorized bookings', async () => {
@@ -245,8 +384,14 @@ test('denies users from creating or changing unauthorized bookings', async () =>
       validBooking({ role: 'admin' }),
     ),
   );
+  await assertFails(
+    setDoc(
+      doc(db, 'bookings', 'wrong-schedule-booking'),
+      validBooking({ reservationScheduleId: 'another-resource__2026-11-02' }),
+    ),
+  );
 
-  await setDoc(doc(db, 'bookings', 'booking-1'), validBooking());
+  await writeBooking(db);
   await assertSucceeds(
     updateDoc(doc(db, 'bookings', 'booking-1'), { status: 'cancelled' }),
   );
@@ -255,6 +400,31 @@ test('denies users from creating or changing unauthorized bookings', async () =>
       status: 'cancelled',
       userId: 'other-user',
     }),
+  );
+});
+
+test('ordinary users cannot modify branches or resource availability', async () => {
+  const db = testEnv.authenticatedContext('member-1').firestore();
+
+  await assertFails(
+    updateDoc(doc(db, 'branches', 'branch-1'), { status: 'inactive' }),
+  );
+  await assertFails(
+    setDoc(
+      doc(db, 'branches', 'branch-1', 'desks', 'desk-2'),
+      {
+        name: 'Desk 2',
+        type: 'hotDesk',
+        floor: '1',
+        status: 'available',
+      },
+    ),
+  );
+  await assertFails(
+    updateDoc(
+      doc(db, 'branches', 'branch-1', 'desks', 'desk-1'),
+      { status: 'occupied' },
+    ),
   );
 });
 
@@ -273,18 +443,7 @@ test('an administrator can perform protected administrative operations', async (
     updateDoc(doc(db, 'users', 'member-1'), { role: 'staff' }),
   );
   await assertSucceeds(
-    setDoc(doc(db, 'branches', 'branch-2'), {
-      name: 'Branch Two',
-      address: '2 Example Street',
-      city: 'Example City',
-      contactNumber: '123456789',
-      totalDeskCapacity: 10,
-      totalRoomCapacity: 2,
-      openingTime: '09:00',
-      closingTime: '18:00',
-      status: 'active',
-      staffUids: [],
-    }),
+    setDoc(doc(db, 'branches', 'branch-2'), validBranch()),
   );
   await assertSucceeds(
     setDoc(doc(db, 'branches', 'branch-2', 'desks', 'desk-1'), {

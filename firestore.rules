@@ -2,6 +2,23 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    function twoDigits(value) {
+      return value < 10 ? '0' + string(value) : string(value);
+    }
+
+    function dateKeyFor(startTime) {
+      let istTime = startTime + duration.value(330, 'm');
+
+      return string(istTime.year()) + '-'
+        + twoDigits(istTime.month()) + '-'
+        + twoDigits(istTime.day());
+    }
+
+    function scheduleIdFor(branchId, resourceType, resourceId, startTime) {
+      return branchId + '__' + resourceType + '__'
+        + resourceId + '__' + dateKeyFor(startTime);
+    }
+
     function isSignedIn() {
       return request.auth != null;
     }
@@ -112,7 +129,8 @@ service cloud.firestore {
           'startTime',
           'endTime',
           'status',
-          'createdAt'
+          'createdAt',
+          'reservationScheduleId'
         ])
         && request.resource.data.keys().hasAll([
           'userId',
@@ -122,7 +140,8 @@ service cloud.firestore {
           'resourceType',
           'startTime',
           'endTime',
-          'status'
+          'status',
+          'reservationScheduleId'
         ])
         && request.resource.data.userId is string
         && request.resource.data.userId.size() > 0
@@ -135,6 +154,7 @@ service cloud.firestore {
         && request.resource.data.startTime is timestamp
         && request.resource.data.endTime is timestamp
         && request.resource.data.startTime < request.resource.data.endTime
+        && request.resource.data.reservationScheduleId is string
         && request.resource.data.status in [
           'pending',
           'confirmed',
@@ -387,6 +407,31 @@ service cloud.firestore {
     }
 
     match /bookings/{bookingId} {
+      function scheduleMatchesBooking() {
+        let scheduleId = request.resource.data.reservationScheduleId;
+        let schedulePath =
+          /databases/$(database)/documents/booking_schedules/$(scheduleId);
+
+        return existsAfter(schedulePath)
+          && getAfter(schedulePath).data.lastBookingId == bookingId
+          && getAfter(schedulePath).data.branchId
+            == request.resource.data.branchId
+          && getAfter(schedulePath).data.resourceId
+            == request.resource.data.resourceId
+          && getAfter(schedulePath).data.resourceType
+            == request.resource.data.resourceType
+          && getAfter(schedulePath).data.dateKey
+            == dateKeyFor(request.resource.data.startTime)
+          && getAfter(schedulePath).data.reservations[bookingId].bookingId
+            == bookingId
+          && getAfter(schedulePath).data.reservations[bookingId].startTime
+            == request.resource.data.startTime
+          && getAfter(schedulePath).data.reservations[bookingId].endTime
+            == request.resource.data.endTime
+          && getAfter(schedulePath).data.reservations[bookingId].status
+            == request.resource.data.status;
+      }
+
       allow read: if isAdmin()
         || (
           isSignedIn()
@@ -397,7 +442,30 @@ service cloud.firestore {
         && validBookingDocument()
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.createdBy == request.auth.uid
-        && request.resource.data.status in ['pending', 'confirmed'];
+        && request.resource.data.status == 'confirmed'
+        && request.resource.data.startTime > request.time
+        && dateKeyFor(request.resource.data.startTime)
+          == dateKeyFor(request.resource.data.endTime)
+        && exists(
+          /databases/$(database)/documents/branches/$(request.resource.data.branchId)
+        )
+        && get(
+          /databases/$(database)/documents/branches/$(request.resource.data.branchId)
+        ).data.status == 'active'
+        && isResourceAvailable(
+          request.resource.data.branchId,
+          request.resource.data.resourceId,
+          request.resource.data.resourceType
+        )
+        && request.resource.data.get('createdAt', null) == request.time
+        && request.resource.data.reservationScheduleId
+          == scheduleIdFor(
+            request.resource.data.branchId,
+            request.resource.data.resourceType,
+            request.resource.data.resourceId,
+            request.resource.data.startTime
+          )
+        && scheduleMatchesBooking();
 
       allow update: if isAdmin()
         && validBookingDocument()
@@ -420,6 +488,110 @@ service cloud.firestore {
         );
 
       allow delete: if isAdmin();
+    }
+
+    match /booking_schedules/{scheduleId} {
+      function validScheduleShape() {
+        return request.resource.data.keys().hasAll([
+            'branchId',
+            'resourceId',
+            'resourceType',
+            'dateKey',
+            'reservations',
+            'lastBookingId',
+            'updatedAt'
+          ])
+          && request.resource.data.keys().hasOnly([
+            'branchId',
+            'resourceId',
+            'resourceType',
+            'dateKey',
+            'reservations',
+            'lastBookingId',
+            'updatedAt'
+          ])
+          && request.resource.data.branchId is string
+          && request.resource.data.resourceId is string
+          && request.resource.data.resourceType in ['desk', 'room']
+          && request.resource.data.dateKey is string
+          && request.resource.data.lastBookingId is string
+          && request.resource.data.reservations is map
+          && request.resource.data.updatedAt == request.time;
+      }
+
+      function matchesBookingAfter(bookingId) {
+        let bookingPath =
+          /databases/$(database)/documents/bookings/$(bookingId);
+        let booking = getAfter(bookingPath).data;
+        let reservation = request.resource.data.reservations[bookingId];
+
+        return existsAfter(bookingPath)
+          && booking.userId == request.auth.uid
+          && booking.createdBy == request.auth.uid
+          && booking.reservationScheduleId == scheduleId
+          && booking.branchId == request.resource.data.branchId
+          && booking.resourceId == request.resource.data.resourceId
+          && booking.resourceType == request.resource.data.resourceType
+          && booking.status == 'confirmed'
+          && scheduleId == scheduleIdFor(
+            booking.branchId,
+            booking.resourceType,
+            booking.resourceId,
+            booking.startTime
+          )
+          && request.resource.data.dateKey == dateKeyFor(booking.startTime)
+          && reservation.keys().hasAll([
+            'bookingId',
+            'startTime',
+            'endTime',
+            'status'
+          ])
+          && reservation.keys().hasOnly([
+            'bookingId',
+            'startTime',
+            'endTime',
+            'status'
+          ])
+          && reservation.bookingId == bookingId
+          && reservation.startTime == booking.startTime
+          && reservation.endTime == booking.endTime
+          && reservation.status == booking.status;
+      }
+
+      allow get: if isSignedIn();
+      allow list: if false;
+
+      allow create: if isSignedIn()
+        && validScheduleShape()
+        && request.resource.data.reservations.keys().size() == 1
+        && request.resource.data.reservations.keys()
+          .hasAll([request.resource.data.lastBookingId])
+        && matchesBookingAfter(request.resource.data.lastBookingId);
+
+      allow update: if isSignedIn()
+        && validScheduleShape()
+        && resource.data.reservations is map
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['reservations', 'lastBookingId', 'updatedAt'])
+        && request.resource.data.reservations.diff(
+          resource.data.reservations
+        ).addedKeys().hasOnly([
+          request.resource.data.lastBookingId
+        ])
+        && request.resource.data.reservations.diff(
+          resource.data.reservations
+        ).addedKeys().hasAll([
+          request.resource.data.lastBookingId
+        ])
+        && request.resource.data.reservations.diff(
+          resource.data.reservations
+        ).removedKeys().size() == 0
+        && request.resource.data.reservations.diff(
+          resource.data.reservations
+        ).changedKeys().size() == 0
+        && matchesBookingAfter(request.resource.data.lastBookingId);
+
+      allow delete: if false;
     }
 
     match /branches/{branchId} {

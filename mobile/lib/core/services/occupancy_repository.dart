@@ -80,14 +80,19 @@ class OccupancyRepository {
     return occupancyRef.id;
   }
 
-  // Listen to active occupancy records across all branches,
-  // or filter by a particular branch.
-  Stream<List<Occupancy>> watchActiveOccupancies({String? branchId}) {
+  // Filter active occupancy records by branch or owner when needed.
+  Stream<List<Occupancy>> watchActiveOccupancies({
+    String? branchId,
+    String? userId,
+  }) {
     Query<Map<String, dynamic>> query = _occupancies.where(
       'status',
       isEqualTo: OccupancyStatus.active.name,
     );
 
+    if (userId != null) {
+      query = query.where('userId', isEqualTo: userId);
+    }
     if (branchId != null) {
       query = query.where('branchId', isEqualTo: branchId);
     }

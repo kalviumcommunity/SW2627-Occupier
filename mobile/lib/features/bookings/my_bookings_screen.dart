@@ -50,6 +50,16 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
   void initState() {
     super.initState();
 
+    final user = FirebaseAuth.instance.currentUser;
+
+    if (user != null) {
+      _bookingsStream = _bookingRepository.watchUserBookings(user.uid);
+      _occupanciesStream = _occupancyRepository.watchActiveOccupancies(
+        userId: user.uid,
+      );
+    } else {
+      _bookingsStream = Stream.value(const <Booking>[]);
+      _occupanciesStream = Stream.value(const <Occupancy>[]);
     _userId = _resolveUserId();
     if (_userId == null) {
       _bookingsStream = Stream.value(const <Booking>[]);
