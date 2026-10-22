@@ -30,11 +30,13 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
 
     if (user != null) {
       _bookingsStream = _bookingRepository.watchUserBookings(user.uid);
+      _occupanciesStream = _occupancyRepository.watchActiveOccupancies(
+        userId: user.uid,
+      );
     } else {
       _bookingsStream = Stream.value(const <Booking>[]);
+      _occupanciesStream = Stream.value(const <Occupancy>[]);
     }
-
-    _occupanciesStream = _occupancyRepository.watchActiveOccupancies();
   }
 
   bool _hasActiveOccupancy(
