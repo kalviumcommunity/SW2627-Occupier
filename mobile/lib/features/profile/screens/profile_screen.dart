@@ -1,11 +1,12 @@
 import 'dart:io';
 
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../../core/services/profile_image_service.dart';
 import '../../../core/services/user_repository.dart';
+import '../../../core/widgets/app_network_image.dart';
 import '../../../models/user.dart';
 import '../../../services/auth_service.dart';
 
@@ -21,6 +22,8 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   final TextEditingController _nameController = TextEditingController();
   late final UserRepository _userRepository = UserRepository();
+  final UserRepository _userRepository = UserRepository();
+  final ProfileImageService _profileImageService = ProfileImageService();
   final ImagePicker _imagePicker = ImagePicker();
 
   late Future<OccupierUser?> _profileFuture;
@@ -47,16 +50,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     final firebaseUser = FirebaseAuth.instance.currentUser;
 
-    if (firebaseUser == null) {
-      return null;
-    }
+    if (firebaseUser == null) return null;
 
-    final profile = await _userRepository.getUser(firebaseUser.uid);
-    return profile;
+    return _userRepository.getUser(firebaseUser.uid);
   }
 
   Future<void> _logout() async {
     if (_isLoggingOut) return;
+
     setState(() => _isLoggingOut = true);
 
     try {
@@ -80,9 +81,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final firebaseUser = FirebaseAuth.instance.currentUser;
     final name = _nameController.text.trim();
 
-    if (firebaseUser == null) {
-      return;
-    }
+    if (firebaseUser == null) return;
 
     if (name.isEmpty) {
       ScaffoldMessenger.of(
@@ -123,7 +122,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Profile updated successfully.')),
       );
-    } catch (error) {
+    } catch (_) {
       if (!mounted) return;
 
       setState(() => _isSaving = false);
@@ -139,9 +138,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _pickAndUploadPhoto() async {
     final firebaseUser = FirebaseAuth.instance.currentUser;
 
-    if (firebaseUser == null) {
-      return;
-    }
+    if (firebaseUser == null) return;
 
     try {
       final pickedImage = await _imagePicker.pickImage(
@@ -150,26 +147,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
         maxWidth: 1024,
       );
 
-      if (pickedImage == null || !mounted) {
-        return;
-      }
+      if (pickedImage == null || !mounted) return;
 
       setState(() {
         _selectedPhotoPath = pickedImage.path;
         _isUploadingPhoto = true;
       });
 
-      final storageRef = FirebaseStorage.instance
-          .ref()
-          .child('profile_photos')
-          .child('${firebaseUser.uid}.jpg');
-
-      final uploadTask = await storageRef.putFile(
-        File(pickedImage.path),
-        SettableMetadata(contentType: 'image/jpeg'),
+      final downloadUrl = await _profileImageService.uploadProfilePhoto(
+        uid: firebaseUser.uid,
+        imageFile: File(pickedImage.path),
       );
-
-      final downloadUrl = await uploadTask.ref.getDownloadURL();
 
       if (!mounted) return;
 
@@ -183,7 +171,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           content: Text('Photo uploaded. Press Save to update your profile.'),
         ),
       );
-    } catch (error) {
+    } catch (_) {
       if (!mounted) return;
 
       setState(() {
@@ -295,18 +283,35 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     children: [
                       CircleAvatar(
                         radius: 52,
+                        backgroundColor: Theme.of(context)
+                            .colorScheme
+                            .surfaceContainerHighest,
                         backgroundImage: _selectedPhotoPath != null
                             ? FileImage(File(_selectedPhotoPath!))
-                            : currentPhotoUrl != null &&
-                                  currentPhotoUrl.isNotEmpty
-                            ? NetworkImage(currentPhotoUrl)
                             : null,
-                        child:
-                            _selectedPhotoPath == null &&
-                                (currentPhotoUrl == null ||
-                                    currentPhotoUrl.isEmpty)
-                            ? const Icon(Icons.person, size: 52)
-                            : null,
+                        child: _selectedPhotoPath != null
+                            ? null
+                            : ClipOval(
+                                child: SizedBox(
+                                  width: 104,
+                                  height: 104,
+                                  child:
+                                      currentPhotoUrl != null &&
+                                          currentPhotoUrl.isNotEmpty
+                                      ? AppNetworkImage(
+                                          imageUrl: currentPhotoUrl,
+                                          width: 104,
+                                          height: 104,
+                                          placeholder: const Icon(
+                                            Icons.person,
+                                            size: 52,
+                                          ),
+                                        )
+                                      : const Center(
+                                          child: Icon(Icons.person, size: 52),
+                                        ),
+                                ),
+                              ),
                       ),
                       if (_isEditing)
                         IconButton.filled(
@@ -318,16 +323,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                     ],
                   ),
-
                   if (_isUploadingPhoto) ...[
                     const SizedBox(height: 12),
                     const CircularProgressIndicator(),
                     const SizedBox(height: 8),
                     const Text('Uploading photo...'),
                   ],
-
                   const SizedBox(height: 16),
-
                   if (_isEditing)
                     TextField(
                       controller: _nameController,
@@ -345,9 +347,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       style: Theme.of(context).textTheme.headlineSmall,
                       textAlign: TextAlign.center,
                     ),
-
                   const SizedBox(height: 12),
-
                   if (_isEditing)
                     Wrap(
                       alignment: WrapAlignment.center,
@@ -386,17 +386,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       icon: const Icon(Icons.edit),
                       label: const Text('Edit Profile'),
                     ),
-
                   const SizedBox(height: 16),
-
                   Text(
                     profile.email,
                     style: Theme.of(context).textTheme.bodyLarge,
                     textAlign: TextAlign.center,
                   ),
-
                   const SizedBox(height: 24),
-
                   Card(
                     child: ListTile(
                       leading: const Icon(Icons.badge_outlined),
@@ -404,7 +400,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       subtitle: Text(profile.role.name),
                     ),
                   ),
-
                   Card(
                     child: ListTile(
                       leading: const Icon(Icons.fingerprint),

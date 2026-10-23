@@ -432,6 +432,48 @@ service cloud.firestore {
             == request.resource.data.status;
       }
 
+      function scheduleMatchesCancellation() {
+        let expectedScheduleId = scheduleIdFor(
+          resource.data.branchId,
+          resource.data.resourceType,
+          resource.data.resourceId,
+          resource.data.startTime
+        );
+        let scheduleId = resource.data.get(
+          'reservationScheduleId',
+          expectedScheduleId
+        );
+        let schedulePath =
+          /databases/$(database)/documents/booking_schedules/$(scheduleId);
+
+        return scheduleId == expectedScheduleId
+          && exists(schedulePath)
+          && existsAfter(schedulePath)
+          && get(schedulePath).data.branchId == resource.data.branchId
+          && get(schedulePath).data.resourceId == resource.data.resourceId
+          && get(schedulePath).data.resourceType == resource.data.resourceType
+          && get(schedulePath).data.dateKey == dateKeyFor(resource.data.startTime)
+          && get(schedulePath).data.reservations[bookingId].bookingId == bookingId
+          && get(schedulePath).data.reservations[bookingId].startTime
+            == resource.data.startTime
+          && get(schedulePath).data.reservations[bookingId].endTime
+            == resource.data.endTime
+          && get(schedulePath).data.reservations[bookingId].status
+            == resource.data.status
+          && getAfter(schedulePath).data.branchId == resource.data.branchId
+          && getAfter(schedulePath).data.resourceId == resource.data.resourceId
+          && getAfter(schedulePath).data.resourceType == resource.data.resourceType
+          && getAfter(schedulePath).data.dateKey == dateKeyFor(resource.data.startTime)
+          && getAfter(schedulePath).data.lastBookingId == bookingId
+          && getAfter(schedulePath).data.reservations[bookingId].bookingId == bookingId
+          && getAfter(schedulePath).data.reservations[bookingId].startTime
+            == resource.data.startTime
+          && getAfter(schedulePath).data.reservations[bookingId].endTime
+            == resource.data.endTime
+          && getAfter(schedulePath).data.reservations[bookingId].status
+            == request.resource.data.status;
+      }
+
       allow read: if isAdmin()
         || (
           isSignedIn()
@@ -467,12 +509,15 @@ service cloud.firestore {
           )
         && scheduleMatchesBooking();
 
-      allow update: if isAdmin()
-        && validBookingDocument()
-        || (
-          isSignedIn()
+      allow update: if (
+          isAdmin()
           && validBookingDocument()
+        ) || (
+          isSignedIn()
           && resource.data.userId == request.auth.uid
+          && resource.data.status in ['pending', 'confirmed']
+          && resource.data.startTime is timestamp
+          && resource.data.startTime > request.time
           && request.resource.data.userId == resource.data.userId
           && request.resource.data.createdBy == resource.data.createdBy
           && request.resource.data.branchId == resource.data.branchId
@@ -485,6 +530,7 @@ service cloud.firestore {
           && request.resource.data.diff(resource.data)
             .affectedKeys().hasOnly(['status'])
           && request.resource.data.status == 'cancelled'
+          && scheduleMatchesCancellation()
         );
 
       allow delete: if isAdmin();
@@ -558,6 +604,79 @@ service cloud.firestore {
           && reservation.status == booking.status;
       }
 
+      function matchesCancelledBookingAfter(bookingId) {
+        let bookingPath =
+          /databases/$(database)/documents/bookings/$(bookingId);
+        let previousBooking = get(bookingPath).data;
+        let booking = getAfter(bookingPath).data;
+        let oldReservation = resource.data.reservations[bookingId];
+        let reservation = request.resource.data.reservations[bookingId];
+        let expectedScheduleId = scheduleIdFor(
+          booking.branchId,
+          booking.resourceType,
+          booking.resourceId,
+          booking.startTime
+        );
+        let bookingScheduleId = booking.get(
+          'reservationScheduleId',
+          expectedScheduleId
+        );
+
+        return exists(bookingPath)
+          && existsAfter(bookingPath)
+          && previousBooking.userId == request.auth.uid
+          && booking.userId == request.auth.uid
+          && previousBooking.status in ['pending', 'confirmed']
+          && previousBooking.startTime is timestamp
+          && previousBooking.startTime > request.time
+          && booking.status == 'cancelled'
+          && bookingScheduleId == scheduleId
+          && scheduleId == expectedScheduleId
+          && previousBooking.branchId == resource.data.branchId
+          && previousBooking.resourceId == resource.data.resourceId
+          && previousBooking.resourceType == resource.data.resourceType
+          && previousBooking.startTime == oldReservation.startTime
+          && previousBooking.endTime == oldReservation.endTime
+          && previousBooking.status == oldReservation.status
+          && request.resource.data.branchId == resource.data.branchId
+          && request.resource.data.resourceId == resource.data.resourceId
+          && request.resource.data.resourceType == resource.data.resourceType
+          && request.resource.data.dateKey == resource.data.dateKey
+          && request.resource.data.dateKey == dateKeyFor(booking.startTime)
+          && oldReservation.bookingId == bookingId
+          && oldReservation.status in ['pending', 'confirmed']
+          && reservation.keys().hasAll([
+            'bookingId',
+            'startTime',
+            'endTime',
+            'status'
+          ])
+          && reservation.keys().hasOnly([
+            'bookingId',
+            'startTime',
+            'endTime',
+            'status'
+          ])
+          && reservation.bookingId == bookingId
+          && reservation.startTime == booking.startTime
+          && reservation.endTime == booking.endTime
+          && reservation.status == booking.status
+          && reservation.diff(oldReservation).affectedKeys().hasOnly(['status'])
+          && request.resource.data.reservations.diff(
+            resource.data.reservations
+          ).addedKeys().size() == 0
+          && request.resource.data.reservations.diff(
+            resource.data.reservations
+          ).removedKeys().size() == 0
+          && request.resource.data.reservations.diff(
+            resource.data.reservations
+          ).changedKeys().hasOnly([bookingId])
+          && request.resource.data.reservations.diff(
+            resource.data.reservations
+          ).changedKeys().hasAll([bookingId])
+          && request.resource.data.lastBookingId == bookingId;
+      }
+
       allow get: if isSignedIn();
       allow list: if false;
 
@@ -571,25 +690,45 @@ service cloud.firestore {
       allow update: if isSignedIn()
         && validScheduleShape()
         && resource.data.reservations is map
-        && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['reservations', 'lastBookingId', 'updatedAt'])
-        && request.resource.data.reservations.diff(
-          resource.data.reservations
-        ).addedKeys().hasOnly([
-          request.resource.data.lastBookingId
-        ])
-        && request.resource.data.reservations.diff(
-          resource.data.reservations
-        ).addedKeys().hasAll([
-          request.resource.data.lastBookingId
-        ])
-        && request.resource.data.reservations.diff(
-          resource.data.reservations
-        ).removedKeys().size() == 0
-        && request.resource.data.reservations.diff(
-          resource.data.reservations
-        ).changedKeys().size() == 0
-        && matchesBookingAfter(request.resource.data.lastBookingId);
+        && (
+          (
+            // New booking: add exactly one reservation without changing old ones.
+            request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['reservations', 'lastBookingId', 'updatedAt'])
+            && request.resource.data.reservations.diff(
+              resource.data.reservations
+            ).addedKeys().hasOnly([
+              request.resource.data.lastBookingId
+            ])
+            && request.resource.data.reservations.diff(
+              resource.data.reservations
+            ).addedKeys().hasAll([
+              request.resource.data.lastBookingId
+            ])
+            && request.resource.data.reservations.diff(
+              resource.data.reservations
+            ).removedKeys().size() == 0
+            && request.resource.data.reservations.diff(
+              resource.data.reservations
+            ).changedKeys().size() == 0
+            && matchesBookingAfter(request.resource.data.lastBookingId)
+          )
+          ||
+          (
+            // Cancellation: change only the matching reservation's status.
+            request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['reservations', 'lastBookingId', 'updatedAt'])
+            && request.resource.data.reservations.diff(
+              resource.data.reservations
+            ).addedKeys().size() == 0
+            && request.resource.data.reservations.diff(
+              resource.data.reservations
+            ).removedKeys().size() == 0
+            && matchesCancelledBookingAfter(
+              request.resource.data.lastBookingId
+            )
+          )
+        );
 
       allow delete: if false;
     }

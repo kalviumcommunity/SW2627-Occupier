@@ -22,12 +22,15 @@ class BookingRepository {
   BookingRepository({
     FirebaseFirestore? firestore,
     String? Function()? currentUserId,
+    DateTime Function()? clock,
   }) : _firestore = firestore ?? FirebaseFirestore.instance,
        _currentUserId =
-           currentUserId ?? (() => FirebaseAuth.instance.currentUser?.uid);
+           currentUserId ?? (() => FirebaseAuth.instance.currentUser?.uid),
+       _clock = clock ?? DateTime.now;
 
   final FirebaseFirestore _firestore;
   final String? Function() _currentUserId;
+  final DateTime Function() _clock;
 
   static const PermissionService _permissions = PermissionService();
 
@@ -207,6 +210,146 @@ class BookingRepository {
     });
 
     return bookingRef.id;
+  }
+
+  /// Cancels an upcoming booking owned by the currently signed-in user.
+  ///
+  /// The booking and its reservation schedule are updated atomically so a
+  /// cancelled reservation no longer blocks that time slot.
+  Future<void> cancelBooking(String bookingId) async {
+    final userId = _currentUserId();
+    if (userId == null) {
+      throw StateError('Please log in to cancel bookings.');
+    }
+    if (bookingId.trim().isEmpty) {
+      throw ArgumentError.value(bookingId, 'bookingId', 'Must not be empty.');
+    }
+
+    final bookingRef = _bookings.doc(bookingId);
+
+    await _firestore.runTransaction<void>((transaction) async {
+      final bookingSnapshot = await transaction.get(bookingRef);
+      if (!bookingSnapshot.exists) {
+        throw StateError('This booking no longer exists.');
+      }
+
+      final bookingData = bookingSnapshot.data();
+      if (bookingData == null) {
+        throw StateError('The booking data is invalid.');
+      }
+      if (bookingData['userId'] != userId) {
+        throw StateError('You can only cancel your own bookings.');
+      }
+
+      final status = bookingData['status'] as String?;
+      if (status != BookingStatus.pending.name &&
+          status != BookingStatus.confirmed.name) {
+        throw StateError(
+          'Only pending or confirmed bookings can be cancelled.',
+        );
+      }
+
+      final rawStart = bookingData['startTime'];
+      final rawEnd = bookingData['endTime'];
+      if (rawStart is! Timestamp || rawEnd is! Timestamp) {
+        throw StateError('The booking contains invalid time data.');
+      }
+
+      final startTime = rawStart.toDate();
+      final endTime = rawEnd.toDate();
+      if (!startTime.isAfter(_clock())) {
+        throw StateError('A booking cannot be cancelled after it has started.');
+      }
+
+      final branchId = bookingData['branchId'];
+      final resourceId = bookingData['resourceId'];
+      final resourceTypeValue = bookingData['resourceType'];
+      if (branchId is! String ||
+          resourceId is! String ||
+          resourceTypeValue is! String) {
+        throw StateError('The booking details are invalid.');
+      }
+
+      final resourceType = BookingResourceType.values.where(
+        (value) => value.name == resourceTypeValue,
+      );
+      if (resourceType.isEmpty) {
+        throw StateError('The booking resource type is invalid.');
+      }
+
+      final expectedScheduleId = reservationScheduleId(
+        branchId: branchId,
+        resourceType: resourceType.first,
+        resourceId: resourceId,
+        date: startTime,
+      );
+      final storedScheduleId = bookingData['reservationScheduleId'];
+      if (storedScheduleId != null && storedScheduleId != expectedScheduleId) {
+        throw StateError('The booking reservation schedule is invalid.');
+      }
+
+      // Read the schedule before writing either document; Firestore
+      // transactions require all reads to happen before writes.
+      final scheduleRef = _schedules.doc(expectedScheduleId);
+      final scheduleSnapshot = await transaction.get(scheduleRef);
+      if (!scheduleSnapshot.exists) {
+        throw StateError(
+          'The reservation schedule was not found. Please contact support.',
+        );
+      }
+
+      final scheduleData = scheduleSnapshot.data();
+      if (scheduleData == null ||
+          scheduleData['branchId'] != branchId ||
+          scheduleData['resourceId'] != resourceId ||
+          scheduleData['resourceType'] != resourceTypeValue ||
+          scheduleData['dateKey'] != _dateKey(startTime)) {
+        throw StateError(
+          'The reservation schedule does not match this booking. '
+          'Please contact support.',
+        );
+      }
+
+      final rawReservations = scheduleData['reservations'];
+      if (rawReservations is! Map) {
+        throw StateError('The reservation schedule contains invalid data.');
+      }
+      final rawReservation = rawReservations[bookingId];
+      if (rawReservation is! Map) {
+        throw StateError(
+          'The booking is missing from its reservation schedule.',
+        );
+      }
+
+      final reservation = Map<String, dynamic>.from(rawReservation);
+      if (reservation['bookingId'] != bookingId ||
+          reservation['status'] != status ||
+          reservation['startTime'] is! Timestamp ||
+          reservation['endTime'] is! Timestamp ||
+          !(reservation['startTime'] as Timestamp).toDate().isAtSameMomentAs(
+            startTime,
+          ) ||
+          !(reservation['endTime'] as Timestamp).toDate().isAtSameMomentAs(
+            endTime,
+          )) {
+        throw StateError(
+          'The reservation schedule does not match this booking. '
+          'Please contact support.',
+        );
+      }
+
+      reservation['status'] = BookingStatus.cancelled.name;
+      final updatedReservations = Map<String, dynamic>.from(rawReservations);
+      updatedReservations[bookingId] = reservation;
+
+      transaction.update(bookingRef, {'status': BookingStatus.cancelled.name});
+      transaction.update(scheduleRef, {
+        'reservations': updatedReservations,
+        // Identifies the reservation changed by this atomic operation.
+        'lastBookingId': bookingId,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    });
   }
 
   bool _overlaps(
