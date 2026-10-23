@@ -27,6 +27,9 @@ class BookingFlowScreen extends StatefulWidget {
 
 class _BookingFlowScreenState extends State<BookingFlowScreen> {
   bool _isSaving = false;
+  int _branchStreamVersion = 0;
+  int _resourceStreamVersion = 0;
+  String? _validationError;
   String? _branchId;
   String? _resourceId;
   String? _resourceName;
@@ -38,6 +41,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
   TimeOfDay? _endTime;
 
   void _resetSelection() {
+    _validationError = null;
     _resourceId = null;
     _resourceName = null;
     _selectedDate = null;
@@ -47,6 +51,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
 
   void _selectResource(String id, String name) {
     setState(() {
+      _validationError = null;
       _resourceId = id;
       _resourceName = name;
       _selectedDate = null;
@@ -60,11 +65,31 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Book a Resource')),
       body: StreamBuilder<List<Branch>>(
+        key: ValueKey('branches-$_branchStreamVersion'),
         stream: widget._repository.watchBranches(),
         builder: (context, snapshot) {
           if (snapshot.hasError) {
-            return const Center(
-              child: Text('Unable to load branches. Please try again.'),
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.cloud_off_outlined, size: 40),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Unable to load branches. Check your connection and retry.',
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 8),
+                    OutlinedButton.icon(
+                      onPressed: () => setState(() => _branchStreamVersion++),
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Retry'),
+                    ),
+                  ],
+                ),
+              ),
             );
           }
 
@@ -208,10 +233,48 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  'Only resources marked available are listed. '
-                  'Time-slot conflict checks will be added with booking creation.',
+                  'Only resources marked available are listed. Availability is '
+                  'checked again when you confirm your booking.',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
+                if (_validationError != null) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.errorContainer,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          Icons.error_outline,
+                          color: Theme.of(context).colorScheme.onErrorContainer,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _validationError!,
+                            style: TextStyle(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onErrorContainer,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ] else if (!_canReview) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    'Select a branch, resource, date, start time and end time '
+                    'to review your booking.',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
                 const SizedBox(height: 24),
                 FilledButton.icon(
                   onPressed: _canReview
@@ -239,10 +302,21 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
   Widget _buildResourcePicker(Branch branch) {
     if (_resourceKind == _ResourceKind.desk) {
       return StreamBuilder<List<Desk>>(
+        key: ValueKey('desks-$_resourceStreamVersion-${branch.id}'),
         stream: widget._repository.watchDesks(branch.id),
         builder: (context, snapshot) {
           if (snapshot.hasError) {
-            return const Text('Unable to load desks.');
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Unable to load desks. Check your connection.'),
+                TextButton.icon(
+                  onPressed: () => setState(() => _resourceStreamVersion++),
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Retry loading desks'),
+                ),
+              ],
+            );
           }
           if (!snapshot.hasData) {
             return const LinearProgressIndicator();
@@ -281,10 +355,23 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     }
 
     return StreamBuilder<List<MeetingRoom>>(
+      key: ValueKey('rooms-$_resourceStreamVersion-${branch.id}'),
       stream: widget._repository.watchMeetingRooms(branch.id),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return const Text('Unable to load meeting rooms.');
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Unable to load meeting rooms. Check your connection.',
+              ),
+              TextButton.icon(
+                onPressed: () => setState(() => _resourceStreamVersion++),
+                icon: const Icon(Icons.refresh),
+                label: const Text('Retry loading meeting rooms'),
+              ),
+            ],
+          );
         }
         if (!snapshot.hasData) {
           return const LinearProgressIndicator();
@@ -337,6 +424,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     if (!mounted || picked == null) return;
 
     setState(() {
+      _validationError = null;
       _selectedDate = picked;
       _startTime = null;
       _endTime = null;
@@ -352,6 +440,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     if (!mounted || picked == null) return;
 
     setState(() {
+      _validationError = null;
       _startTime = picked;
 
       if (_endTime != null && _minutes(_endTime!) <= _minutes(picked)) {
@@ -373,7 +462,10 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
 
     if (!mounted || picked == null) return;
 
-    setState(() => _endTime = picked);
+    setState(() {
+      _validationError = null;
+      _endTime = picked;
+    });
   }
 
   int _minutes(TimeOfDay time) => time.hour * 60 + time.minute;
@@ -407,7 +499,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
 
     if (end <= start) {
       error = 'End time must be later than start time.';
-    } else if (opening == null || closing == null) {
+    } else if (opening == null || closing == null || opening >= closing) {
       error = 'Branch opening hours are not configured correctly.';
     } else if (start < opening || end > closing) {
       error =
@@ -428,10 +520,11 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     }
 
     if (error != null) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(error)));
+      setState(() => _validationError = error);
       return;
     }
+
+    setState(() => _validationError = null);
 
     final date = MaterialLocalizations.of(context)
         .formatMediumDate(_selectedDate!);
@@ -556,9 +649,60 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
       if (!mounted) return;
 
       setState(() => _isSaving = false);
-
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(error.message)));
+    } on BookingValidationException catch (error) {
+      debugPrint('Booking validation failed: ${error.message}');
+
+      if (dialogContext.mounted) {
+        Navigator.of(dialogContext).pop();
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        _isSaving = false;
+        _validationError = error.message;
+      });
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error.message)));
+    } on FirebaseException catch (error, stackTrace) {
+      debugPrint('Booking Firebase error: $error\n$stackTrace');
+
+      if (dialogContext.mounted) {
+        Navigator.of(dialogContext).pop();
+      }
+
+      if (!mounted) return;
+
+      final message = switch (error.code) {
+        'permission-denied' =>
+          'Booking was rejected because access or availability changed. '
+              'Refresh the screen and try again.',
+        'unavailable' || 'network-request-failed' =>
+          'Connection problem. Check your internet connection and try again.',
+        'failed-precondition' =>
+          'The resource state changed before the booking could be saved. '
+              'Refresh and try again.',
+        _ => 'Unable to save the booking right now. Please try again.',
+      };
+
+      setState(() => _isSaving = false);
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+    } on StateError catch (error, stackTrace) {
+      debugPrint('Booking state validation failed: $error\n$stackTrace');
+
+      if (dialogContext.mounted) {
+        Navigator.of(dialogContext).pop();
+      }
+
+      if (!mounted) return;
+
+      final message = error.message.toString();
+      setState(() => _isSaving = false);
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
     } catch (error, stackTrace) {
       debugPrint('Booking creation failed: $error\n$stackTrace');
 
@@ -573,8 +717,8 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Could not save booking. Check the connection and '
-            'Firestore permissions, then try again.',
+            'Could not save booking. Please try again. If the problem persists, '
+            'check your connection or contact support.',
           ),
         ),
       );

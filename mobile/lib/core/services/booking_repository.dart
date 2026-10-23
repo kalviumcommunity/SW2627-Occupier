@@ -18,6 +18,16 @@ class BookingConflictException implements Exception {
   String toString() => message;
 }
 
+/// Thrown when booking details fail validation before persistence.
+class BookingValidationException implements Exception {
+  const BookingValidationException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 class BookingRepository {
   BookingRepository({
     FirebaseFirestore? firestore,
@@ -78,17 +88,36 @@ class BookingRepository {
       throw StateError('Bookings can only be created for the signed-in user.');
     }
 
+    if (booking.branchId.trim().isEmpty) {
+      throw const BookingValidationException(
+        'Choose a branch before creating a booking.',
+      );
+    }
+    if (booking.resourceId.trim().isEmpty) {
+      throw const BookingValidationException(
+        'Choose a desk or meeting room before creating a booking.',
+      );
+    }
+
     final start = booking.startTime;
     final end = booking.endTime;
 
     if (!end.isAfter(start)) {
-      throw ArgumentError('Booking end time must be after start time.');
+      throw const BookingValidationException(
+        'End time must be later than start time.',
+      );
     }
 
     // Each booking must start and end on the same IST calendar date.
     if (_dateKey(start) != _dateKey(end)) {
-      throw ArgumentError(
+      throw const BookingValidationException(
         'A booking must start and end on the same calendar date.',
+      );
+    }
+
+    if (!start.isAfter(_clock())) {
+      throw const BookingValidationException(
+        'Choose a start time in the future.',
       );
     }
 
