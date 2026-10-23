@@ -40,6 +40,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
 
   _BookingFilter _filter = _BookingFilter.upcoming;
   String? _checkingInBookingId;
+  String? _cancellingBookingId;
 
   String? _resolveUserId() =>
       widget.currentUserId?.call() ?? FirebaseAuth.instance.currentUser?.uid;
@@ -50,24 +51,18 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
   void initState() {
     super.initState();
 
-    final user = FirebaseAuth.instance.currentUser;
+    // Resolve the user once so bookings and occupancies use the same owner.
+    final userId = _resolveUserId();
+    _userId = userId;
 
-    if (user != null) {
-      _bookingsStream = _bookingRepository.watchUserBookings(user.uid);
+    if (userId == null) {
+      _bookingsStream = Stream.value(const <Booking>[]);
+      _occupanciesStream = Stream.value(const <Occupancy>[]);
+    } else {
+      _bookingsStream = _bookingRepository.watchUserBookings(userId);
       _occupanciesStream = _occupancyRepository.watchActiveOccupancies(
-        userId: user.uid,
+        userId: userId,
       );
-    } else {
-      _bookingsStream = Stream.value(const <Booking>[]);
-      _occupanciesStream = Stream.value(const <Occupancy>[]);
-    _userId = _resolveUserId();
-    if (_userId == null) {
-      _bookingsStream = Stream.value(const <Booking>[]);
-      _occupanciesStream = Stream.value(const <Occupancy>[]);
-    } else {
-      _bookingsStream = _bookingRepository.watchUserBookings(_userId);
-      // Preserve the current check-in integration owned by the occupancy flow.
-      _occupanciesStream = _occupancyRepository.watchActiveOccupancies();
     }
   }
 
@@ -83,6 +78,12 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
     return booking.status == BookingStatus.confirmed &&
         !now.isBefore(booking.startTime) &&
         now.isBefore(booking.endTime);
+  }
+
+  bool _canCancel(Booking booking, DateTime now) {
+    return (booking.status == BookingStatus.pending ||
+            booking.status == BookingStatus.confirmed) &&
+        booking.startTime.isAfter(now);
   }
 
   List<Booking> _visibleBookings(List<Booking> bookings, DateTime now) {
@@ -171,6 +172,74 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
         setState(() {
           _checkingInBookingId = null;
         });
+      }
+    }
+  }
+
+  Future<void> _requestCancellation(Booking booking) async {
+    final userId = _userId;
+    if (userId == null) {
+      _showMessage('Please log in to cancel bookings.');
+      return;
+    }
+    if (booking.userId != userId) {
+      _showMessage('You can only cancel your own bookings.');
+      return;
+    }
+    if (!_canCancel(booking, _now)) {
+      _showMessage(
+        'Only upcoming pending or confirmed bookings can be cancelled.',
+      );
+      return;
+    }
+    if (_cancellingBookingId != null) return;
+
+    final shouldCancel = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Cancel booking?'),
+        content: const Text(
+          'This will cancel your reservation and release the reserved time slot. '
+          'You cannot undo this action.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Keep booking'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Cancel booking'),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted || shouldCancel != true) return;
+
+    // Re-check the cancellation window after the user confirms the dialog.
+    if (!_canCancel(booking, _now)) {
+      _showMessage('This booking can no longer be cancelled.');
+      return;
+    }
+
+    setState(() => _cancellingBookingId = booking.id);
+    try {
+      await _bookingRepository.cancelBooking(booking.id);
+      if (!mounted) return;
+      _showMessage('Booking cancelled successfully.');
+    } on FirebaseException catch (error) {
+      if (!mounted) return;
+      _showMessage(
+        error.message ?? 'Unable to cancel booking. Please try again.',
+      );
+    } catch (error) {
+      if (!mounted) return;
+      final message = error.toString().replaceFirst('Bad state: ', '');
+      _showMessage(message);
+    } finally {
+      if (mounted) {
+        setState(() => _cancellingBookingId = null);
       }
     }
   }
@@ -426,6 +495,8 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
     final statusColor = _statusColor(context, booking, hasCheckedIn);
     final canCheckIn = _canCheckIn(booking, now);
     final isCheckingIn = _checkingInBookingId == booking.id;
+    final canCancel = _canCancel(booking, now) && !hasCheckedIn;
+    final isCancelling = _cancellingBookingId == booking.id;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 14),
@@ -538,6 +609,27 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
                         )
                       : const Icon(Icons.login),
                   label: Text(isCheckingIn ? 'Checking in...' : 'Check in'),
+                ),
+              ),
+            ],
+            if (canCancel) ...[
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: isCancelling || _cancellingBookingId != null
+                      ? null
+                      : () => _requestCancellation(booking),
+                  icon: isCancelling
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.event_busy_outlined),
+                  label: Text(
+                    isCancelling ? 'Cancelling...' : 'Cancel booking',
+                  ),
                 ),
               ),
             ],
