@@ -10,7 +10,9 @@ import '../../../models/user.dart';
 import '../../../services/auth_service.dart';
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key});
+  const ProfileScreen({super.key, this.profileLoader});
+
+  final Future<OccupierUser?> Function()? profileLoader;
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -18,7 +20,7 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   final TextEditingController _nameController = TextEditingController();
-  final UserRepository _userRepository = UserRepository();
+  late final UserRepository _userRepository = UserRepository();
   final ImagePicker _imagePicker = ImagePicker();
 
   late Future<OccupierUser?> _profileFuture;
@@ -38,6 +40,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<OccupierUser?> _loadProfile() async {
+    final profileLoader = widget.profileLoader;
+    if (profileLoader != null) {
+      return profileLoader();
+    }
+
     final firebaseUser = FirebaseAuth.instance.currentUser;
 
     if (firebaseUser == null) {
@@ -68,6 +75,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _saveProfile() async {
+    if (_isSaving || _isUploadingPhoto) return;
+
     final firebaseUser = FirebaseAuth.instance.currentUser;
     final name = _nameController.text.trim();
 
@@ -199,6 +208,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
     });
   }
 
+  void _retryProfileLoad() {
+    setState(() {
+      _profileFuture = _loadProfile();
+    });
+  }
+
   @override
   void dispose() {
     _nameController.dispose();
@@ -232,8 +247,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
           }
 
           if (snapshot.hasError) {
-            return const Center(
-              child: Text('Unable to load your profile. Please try again.'),
+            return Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('Unable to load your profile. Please try again.'),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: _retryProfileLoad,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Try again'),
+                  ),
+                ],
+              ),
             );
           }
 
@@ -247,11 +273,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   const Text('Your profile is unavailable.'),
                   const SizedBox(height: 12),
                   OutlinedButton.icon(
-                    onPressed: () {
-                      setState(() {
-                        _profileFuture = _loadProfile();
-                      });
-                    },
+                    onPressed: _retryProfileLoad,
                     icon: const Icon(Icons.refresh),
                     label: const Text('Try again'),
                   ),
