@@ -8,6 +8,7 @@ const {
 } = require('@firebase/rules-unit-testing');
 const {
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -18,7 +19,7 @@ const {
   where,
   writeBatch,
 } = require('firebase/firestore');
-const { getBytes, ref, uploadBytes } = require('firebase/storage');
+const { deleteObject, getBytes, ref, uploadBytes } = require('firebase/storage');
 const { test, before, after, beforeEach } = require('node:test');
 
 const projectId = 'occupier-rules-test';
@@ -67,6 +68,8 @@ test('Firebase configurations point to identical Firestore rules', () => {
   assert.equal(rootFirebaseConfig.firestore.rules, 'firestore.rules');
   assert.equal(mobileFirebaseConfig.firestore.rules, 'firestore.rules');
   assert.equal(mobileFirestoreRules, firestoreRules);
+  assert.equal(rootFirebaseConfig.storage.rules, 'storage.rules');
+  assert.equal(rootFirebaseConfig.emulators.storage.port, 9199);
 });
 
 beforeEach(async () => {
@@ -200,6 +203,24 @@ test('denies unauthenticated access to private application data', async () => {
   await assertFails(getDoc(doc(db, 'occupancies', 'occupancy-1')));
 });
 
+test('denies unauthenticated user profile creation, update, and deletion', async () => {
+  const db = testEnv.unauthenticatedContext().firestore();
+
+  await assertFails(
+    setDoc(doc(db, 'users', 'new-user'), {
+      uid: 'new-user',
+      name: 'New User',
+      email: 'new@example.com',
+      role: 'member',
+      photoUrl: null,
+    }),
+  );
+  await assertFails(
+    updateDoc(doc(db, 'users', 'member-1'), { name: 'Changed' }),
+  );
+  await assertFails(deleteDoc(doc(db, 'users', 'member-1')));
+});
+
 test('allows a user to read and update permitted fields in their profile', async () => {
   const db = testEnv.authenticatedContext('member-1').firestore();
 
@@ -218,6 +239,15 @@ test('denies reading or updating another user profile', async () => {
   await assertFails(getDoc(doc(db, 'users', 'other-user')));
   await assertFails(
     updateDoc(doc(db, 'users', 'other-user'), { name: 'Changed' }),
+  );
+  await assertFails(
+    setDoc(doc(db, 'users', 'other-user'), {
+      uid: 'other-user',
+      name: 'Impersonated User',
+      email: 'other@example.com',
+      role: 'member',
+      photoUrl: null,
+    }),
   );
 });
 
@@ -253,7 +283,13 @@ test('denies ordinary users from changing roles or adding authorization fields',
     updateDoc(doc(db, 'users', 'member-1'), { isAdmin: true }),
   );
   await assertFails(
+    updateDoc(doc(db, 'users', 'member-1'), { assignedBranchId: 'branch-1' }),
+  );
+  await assertFails(
     updateDoc(doc(db, 'users', 'member-1'), { name: 12 }),
+  );
+  await assertFails(
+    updateDoc(doc(db, 'users', 'member-1'), { uid: 'other-user' }),
   );
   await assertFails(
     setDoc(doc(db, 'users', 'member-1'), {
@@ -263,6 +299,34 @@ test('denies ordinary users from changing roles or adding authorization fields',
       role: 'member',
       assignedBranchId: 'branch-1',
     }),
+  );
+  await assertFails(
+    setDoc(doc(db, 'users', 'another-document'), {
+      uid: 'member-1',
+      name: 'Member',
+      email: 'member@example.com',
+      role: 'member',
+      photoUrl: null,
+    }),
+  );
+});
+
+test('denies users from modifying existing authorization fields', async () => {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), 'users', 'member-1'), {
+      uid: 'member-1',
+      name: 'Test Member',
+      email: 'member@example.com',
+      role: 'member',
+      photoUrl: null,
+      isAdmin: false,
+    });
+  });
+
+  const db = testEnv.authenticatedContext('member-1').firestore();
+
+  await assertFails(
+    updateDoc(doc(db, 'users', 'member-1'), { isAdmin: true }),
   );
 });
 
@@ -606,13 +670,24 @@ test('users cannot create an unlinked self-occupancy or claim another user', asy
 test('a user can access only their own profile image in Storage', async () => {
   const ownerStorage = testEnv.authenticatedContext('photo-owner').storage();
   const otherStorage = testEnv.authenticatedContext('other-user').storage();
+  const unauthenticatedStorage = testEnv.unauthenticatedContext().storage();
   const image = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
   const ownerRef = ref(ownerStorage, 'profile_photos/photo-owner.jpg');
 
+  await assertFails(
+    uploadBytes(
+      ref(unauthenticatedStorage, 'profile_photos/anonymous.jpg'),
+      image,
+      { contentType: 'image/jpeg' },
+    ),
+  );
   await assertSucceeds(
     uploadBytes(ownerRef, image, { contentType: 'image/jpeg' }),
   );
   await assertSucceeds(getBytes(ownerRef));
+  await assertFails(
+    getBytes(ref(unauthenticatedStorage, 'profile_photos/photo-owner.jpg')),
+  );
   await assertFails(
     getBytes(ref(otherStorage, 'profile_photos/photo-owner.jpg')),
   );
@@ -629,5 +704,25 @@ test('a user can access only their own profile image in Storage', async () => {
       image,
       { contentType: 'image/png' },
     ),
+  );
+  await assertFails(
+    uploadBytes(ownerRef, image, { contentType: 'application/octet-stream' }),
+  );
+  await assertFails(
+    uploadBytes(
+      ownerRef,
+      new Uint8Array(5 * 1024 * 1024),
+      { contentType: 'image/jpeg' },
+    ),
+  );
+  await assertFails(
+    uploadBytes(
+      ownerRef,
+      new Uint8Array(5 * 1024 * 1024 + 1),
+      { contentType: 'image/jpeg' },
+    ),
+  );
+  await assertFails(
+    deleteObject(ref(otherStorage, 'profile_photos/photo-owner.jpg')),
   );
 });
