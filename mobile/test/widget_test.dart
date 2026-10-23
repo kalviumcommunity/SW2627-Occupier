@@ -80,11 +80,49 @@ void main() {
     authChanges.add('member-1');
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Open login'));
+    for (final label in [
+      'Open login',
+      'Open registration',
+      'Open password reset',
+    ]) {
+      await tester.tap(find.text(label));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Protected Dashboard'), findsOneWidget);
+      expect(find.text('Test Login'), findsNothing);
+      expect(find.text('Test Register'), findsNothing);
+      expect(find.text('Test Password Reset'), findsNothing);
+    }
+
+    await authChanges.close();
+  });
+
+  testWidgets('signed-out users can access registration and password reset', (
+    tester,
+  ) async {
+    final authChanges = StreamController<String?>.broadcast();
+
+    await tester.pumpWidget(
+      OccupierApp(
+        authStateChanges: authChanges.stream,
+        routeBuilders: _testRoutes,
+      ),
+    );
+
+    authChanges.add(null);
     await tester.pumpAndSettle();
 
-    expect(find.text('Protected Dashboard'), findsOneWidget);
-    expect(find.text('Test Login'), findsNothing);
+    await tester.tap(find.text('Open registration'));
+    await tester.pumpAndSettle();
+    expect(find.text('Test Register'), findsOneWidget);
+
+    await tester.tap(find.text('Back to Login'));
+    await tester.pumpAndSettle();
+    expect(find.text('Test Login'), findsOneWidget);
+
+    await tester.tap(find.text('Open password reset'));
+    await tester.pumpAndSettle();
+    expect(find.text('Test Password Reset'), findsOneWidget);
 
     await authChanges.close();
   });
@@ -116,6 +154,20 @@ final Map<String, WidgetBuilder> _testRoutes = {
     body: Column(
       children: [
         const Text('Test Login'),
+        Builder(
+          builder: (context) => TextButton(
+            onPressed: () =>
+                Navigator.of(context).pushNamed(AppRoutes.register),
+            child: const Text('Open registration'),
+          ),
+        ),
+        Builder(
+          builder: (context) => TextButton(
+            onPressed: () =>
+                Navigator.of(context).pushNamed(AppRoutes.forgotPassword),
+            child: const Text('Open password reset'),
+          ),
+        ),
         for (final route in _protectedRouteNames)
           Builder(
             builder: (context) => TextButton(
@@ -143,10 +195,39 @@ final Map<String, WidgetBuilder> _testRoutes = {
             child: const Text('Open login'),
           ),
         ),
+        Builder(
+          builder: (context) => TextButton(
+            onPressed: () =>
+                Navigator.of(context).pushNamed(AppRoutes.register),
+            child: const Text('Open registration'),
+          ),
+        ),
+        Builder(
+          builder: (context) => TextButton(
+            onPressed: () =>
+                Navigator.of(context).pushNamed(AppRoutes.forgotPassword),
+            child: const Text('Open password reset'),
+          ),
+        ),
       ],
     ),
   ),
   AppRoutes.profile: (_) => const Scaffold(body: Text('Protected Profile')),
+  AppRoutes.register: (_) => Scaffold(
+    body: Column(
+      children: [
+        const Text('Test Register'),
+        Builder(
+          builder: (context) => TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Back to Login'),
+          ),
+        ),
+      ],
+    ),
+  ),
+  AppRoutes.forgotPassword: (_) =>
+      const Scaffold(body: Text('Test Password Reset')),
 };
 
 const _protectedRouteNames = [
