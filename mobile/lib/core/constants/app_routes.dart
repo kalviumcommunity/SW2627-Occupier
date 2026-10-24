@@ -1,4 +1,3 @@
-
 class AppRoutes {
   static const String login = '/login';
   static const String register = '/register';
@@ -12,4 +11,5 @@ class AppRoutes {
   static const String occupancy = '/occupancy';
   static const String profile = '/profile';
   static const String myBookings = '/my-bookings';
+  static const String walkInCheckIn = '/walk-in-check-in';
 }

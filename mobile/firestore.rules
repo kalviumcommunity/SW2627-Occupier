@@ -282,6 +282,15 @@ service cloud.firestore {
         );
     }
 
+    function validWalkInCustomer(occupancyData) {
+      return occupancyData.customerName is string
+        && occupancyData.customerName.size() > 0
+        && occupancyData.customerName.size() <= 100
+        && occupancyData.customerPhone is string
+        && occupancyData.customerPhone.size() >= 3
+        && occupancyData.customerPhone.size() <= 32;
+    }
+
     function validOccupancyDocument(occupancyId) {
       return request.resource.data.keys().hasOnly([
           'occupancyId',
@@ -294,7 +303,9 @@ service cloud.firestore {
           'checkInTime',
           'checkOutTime',
           'source',
-          'createdAt'
+          'createdAt',
+          'customerName',
+          'customerPhone'
         ])
         && request.resource.data.keys().hasAll([
           'occupancyId',
@@ -333,6 +344,10 @@ service cloud.firestore {
 
     function validBookingLinkedOccupancy() {
       return request.resource.data.source == 'booking'
+        && !request.resource.data.keys().hasAny([
+          'customerName',
+          'customerPhone'
+        ])
         && request.resource.data.bookingId is string
         && exists(
           /databases/$(database)/documents/bookings/$(request.resource.data.bookingId)
@@ -376,7 +391,7 @@ service cloud.firestore {
     }
 
     function isAssignedBranchOccupancy(occupancyData) {
-      return canManageAssignedBranch(occupancyData.branchId);
+      return isAdmin() || canManageAssignedBranch(occupancyData.branchId);
     }
 
     match /users/{userId} {
@@ -809,6 +824,7 @@ service cloud.firestore {
           || (
             request.resource.data.source == 'walkIn'
             && isAssignedBranchOccupancy(request.resource.data)
+            && validWalkInCustomer(request.resource.data)
           )
         );
 

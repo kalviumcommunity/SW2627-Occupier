@@ -30,11 +30,71 @@ class OccupancyRepository {
   }
 
   // Check in a user and mark the resource occupied atomically.
-  Future<String> createOccupancy(Occupancy occupancy) async {
+  Future<String> createWalkInOccupancy({
+    required String branchId,
+    required String resourceId,
+    required String resourceType,
+    required String customerName,
+    required String customerPhone,
+  }) {
+    final occupancyRef = _occupancies.doc();
+    final name = customerName.trim();
+    final phone = customerPhone.trim();
+
+    if (name.isEmpty || name.length > 100) {
+      throw ArgumentError.value(
+        customerName,
+        'customerName',
+        'Must be 1-100 characters.',
+      );
+    }
+    if (phone.length < 3 || phone.length > 32) {
+      throw ArgumentError.value(
+        customerPhone,
+        'customerPhone',
+        'Must be 3-32 characters.',
+      );
+    }
+
+    return _createOccupancy(
+      Occupancy(
+        occupancyId: occupancyRef.id,
+        branchId: branchId,
+        resourceId: resourceId,
+        resourceType: resourceType,
+        userId: 'walk-in-${occupancyRef.id}',
+        status: OccupancyStatus.active,
+        checkInTime: DateTime.now(),
+        source: OccupancySource.walkIn,
+        createdAt: DateTime.now(),
+        customerName: name,
+        customerPhone: phone,
+      ),
+      occupancyRef,
+    );
+  }
+
+  Future<String> createOccupancy(Occupancy occupancy) {
+    return _createOccupancy(occupancy, _occupancies.doc());
+  }
+
+  Future<String> _createOccupancy(
+    Occupancy occupancy,
+    DocumentReference<Map<String, dynamic>> occupancyRef,
+  ) async {
     if (occupancy.branchId.isEmpty ||
         occupancy.resourceId.isEmpty ||
         occupancy.userId.isEmpty) {
       throw ArgumentError('Branch, resource, and user IDs are required.');
+    }
+    if (occupancy.source == OccupancySource.walkIn &&
+        (occupancy.customerName == null ||
+            occupancy.customerPhone == null ||
+            occupancy.customerName!.trim().isEmpty ||
+            occupancy.customerName!.trim().length > 100 ||
+            occupancy.customerPhone!.trim().length < 3 ||
+            occupancy.customerPhone!.trim().length > 32)) {
+      throw ArgumentError('Walk-ins require a valid name and contact number.');
     }
 
     final resourceRef = _resourceDocument(
@@ -42,8 +102,6 @@ class OccupancyRepository {
       resourceId: occupancy.resourceId,
       resourceType: occupancy.resourceType,
     );
-
-    final occupancyRef = _occupancies.doc();
 
     await _firestore.runTransaction((transaction) async {
       // Read before writing.
@@ -62,7 +120,7 @@ class OccupancyRepository {
 
       transaction.update(resourceRef, {'status': 'occupied'});
 
-      transaction.set(occupancyRef, {
+      final occupancyData = <String, dynamic>{
         'occupancyId': occupancyRef.id,
         'branchId': occupancy.branchId,
         'resourceId': occupancy.resourceId,
@@ -74,7 +132,12 @@ class OccupancyRepository {
         'checkOutTime': null,
         'source': occupancy.source.name,
         'createdAt': FieldValue.serverTimestamp(),
-      });
+      };
+      if (occupancy.source == OccupancySource.walkIn) {
+        occupancyData['customerName'] = occupancy.customerName!.trim();
+        occupancyData['customerPhone'] = occupancy.customerPhone!.trim();
+      }
+      transaction.set(occupancyRef, occupancyData);
     });
 
     return occupancyRef.id;
@@ -169,6 +232,8 @@ class OccupancyRepository {
         (value) => value.name == data['source'],
       ),
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      customerName: data['customerName'] as String?,
+      customerPhone: data['customerPhone'] as String?,
     );
   }
 }

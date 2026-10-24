@@ -238,4 +238,5 @@ const _protectedRouteNames = [
   AppRoutes.bookings,
   AppRoutes.occupancy,
   AppRoutes.profile,
+  AppRoutes.walkInCheckIn,
 ];
