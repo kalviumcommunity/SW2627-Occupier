@@ -51,6 +51,7 @@ class DashboardScreen extends StatelessWidget {
         return _buildDashboard(
           context,
           canReadAllOccupancies: permissions.isAdministrator(profile.role),
+          canManageOccupancy: permissions.canManageOccupancy(profile.role),
         );
       },
     );
@@ -59,6 +60,7 @@ class DashboardScreen extends StatelessWidget {
   Widget _buildDashboard(
     BuildContext context, {
     required bool canReadAllOccupancies,
+    required bool canManageOccupancy,
   }) {
     final repository = ResourceRepository();
     final occupancyService = OccupancyService();
@@ -66,17 +68,25 @@ class DashboardScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-  title: const Text('Occupancy Dashboard'),
-  actions: [
-    IconButton(
-      tooltip: 'My Bookings',
-      icon: const Icon(Icons.event_note),
-      onPressed: () {
-        Navigator.pushNamed(context, AppRoutes.myBookings);
-      },
-    ),
-  ],
-),
+        title: const Text('Occupancy Dashboard'),
+        actions: [
+          if (canManageOccupancy)
+            IconButton(
+              tooltip: 'Walk-in check-in',
+              icon: const Icon(Icons.person_add_alt_1),
+              onPressed: () {
+                Navigator.pushNamed(context, AppRoutes.walkInCheckIn);
+              },
+            ),
+          IconButton(
+            tooltip: 'My Bookings',
+            icon: const Icon(Icons.event_note),
+            onPressed: () {
+              Navigator.pushNamed(context, AppRoutes.myBookings);
+            },
+          ),
+        ],
+      ),
       body: StreamBuilder<List<Branch>>(
         stream: repository.watchBranches(),
         builder: (context, branchSnapshot) {

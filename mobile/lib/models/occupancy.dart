@@ -10,6 +10,8 @@ class Occupancy {
   final DateTime? checkOutTime;
   final OccupancySource source;
   final DateTime createdAt;
+  final String? customerName;
+  final String? customerPhone;
 
   Occupancy({
     required this.occupancyId,
@@ -23,15 +25,11 @@ class Occupancy {
     this.checkOutTime,
     required this.source,
     required this.createdAt,
+    this.customerName,
+    this.customerPhone,
   });
 }
 
-enum OccupancyStatus {
-  active,
-  completed,
-}
+enum OccupancyStatus { active, completed }
 
-enum OccupancySource {
-  booking,
-  walkIn,
-}
+enum OccupancySource { booking, walkIn }
