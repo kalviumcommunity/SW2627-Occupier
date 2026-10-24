@@ -95,6 +95,73 @@ void main() {
       expect(reservation['status'], 'confirmed');
     });
 
+    test('rejects a booking with an empty branch or resource', () async {
+      await expectLater(
+        repository.createBooking(
+          createTestBooking(userId: 'user-001', branchId: '  '),
+        ),
+        throwsA(isA<BookingValidationException>()),
+      );
+      await expectLater(
+        repository.createBooking(
+          createTestBooking(userId: 'user-001', resourceId: ''),
+        ),
+        throwsA(isA<BookingValidationException>()),
+      );
+
+      expect((await firestore.collection('bookings').get()).docs, isEmpty);
+      expect(
+        (await firestore.collection('booking_schedules').get()).docs,
+        isEmpty,
+      );
+    });
+
+    test('rejects an end time that is not after the start time', () async {
+      final start = DateTime.utc(2026, 11, 2, 9);
+      await expectLater(
+        repository.createBooking(
+          createTestBooking(
+            userId: 'user-001',
+            startTime: start,
+            endTime: start,
+          ),
+        ),
+        throwsA(isA<BookingValidationException>()),
+      );
+    });
+
+    test('rejects a booking whose start time is not in the future', () async {
+      await expectLater(
+        repository.createBooking(
+          createTestBooking(
+            userId: 'user-001',
+            startTime: DateTime.utc(2026, 11, 1, 11),
+            endTime: DateTime.utc(2026, 11, 1, 12),
+          ),
+        ),
+        throwsA(
+          isA<BookingValidationException>().having(
+            (error) => error.message,
+            'message',
+            'Choose a start time in the future.',
+          ),
+        ),
+      );
+    });
+
+    test('rejects bookings spanning more than one IST calendar day', () async {
+      await expectLater(
+        repository.createBooking(
+          createTestBooking(
+            userId: 'user-001',
+            startTime: DateTime.utc(2026, 11, 1, 18),
+            endTime: DateTime.utc(2026, 11, 1, 19),
+          ),
+        ),
+        throwsA(isA<BookingValidationException>()),
+      );
+    });
+
     test('returns null when a booking does not exist', () async {
       final result = await repository.getBooking('missing-booking');
 
@@ -107,6 +174,7 @@ void main() {
       final otherUserRepository = BookingRepository(
         firestore: firestore,
         currentUserId: () => 'user-002',
+        clock: () => currentTime,
       );
 
       await otherUserRepository.createBooking(
@@ -240,12 +308,9 @@ void main() {
 
     test('denies cancelling a booking that has already started', () async {
       final bookingId = await repository.createBooking(
-        createTestBooking(
-          userId: 'user-001',
-          startTime: DateTime.utc(2026, 11, 1, 9),
-          endTime: DateTime.utc(2026, 11, 1, 10),
-        ),
+        createTestBooking(userId: 'user-001'),
       );
+      currentTime = DateTime.utc(2026, 11, 2, 9, 30);
 
       await expectLater(
         repository.cancelBooking(bookingId),
