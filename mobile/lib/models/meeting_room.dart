@@ -10,6 +10,7 @@ class MeetingRoom {
     required this.floor,
     required this.amenities,
     required this.status,
+    this.activeOccupancyId,
     this.createdAt,
   });
 
@@ -19,6 +20,7 @@ class MeetingRoom {
   final String floor;
   final List<String> amenities;
   final MeetingRoomStatus status;
+  final String? activeOccupancyId;
   final DateTime? createdAt;
 
   Map<String, dynamic> toFirestore() {
@@ -28,6 +30,7 @@ class MeetingRoom {
       'floor': floor,
       'amenities': amenities,
       'status': status.name,
+      'activeOccupancyId': activeOccupancyId,
       'createdAt': createdAt == null ? null : Timestamp.fromDate(createdAt!),
     };
   }
@@ -62,6 +65,7 @@ class MeetingRoom {
       floor: data['floor'] as String? ?? '',
       amenities: amenities,
       status: status,
+      activeOccupancyId: data['activeOccupancyId'] as String?,
       createdAt: createdAtValue is Timestamp ? createdAtValue.toDate() : null,
     );
   }
