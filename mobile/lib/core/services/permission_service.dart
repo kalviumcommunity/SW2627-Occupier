@@ -1,4 +1,5 @@
 import '../../models/user.dart';
+import '../constants/app_routes.dart';
 
 /// Defines the actions available to each Occupier user role.
 ///
@@ -59,5 +60,18 @@ class PermissionService {
 
   bool canAssignRoles(UserRole? role) {
     return role == UserRole.admin;
+  }
+
+  bool canAccessRoute(String routeName, UserRole? role) {
+    if (role == null || !UserRole.values.contains(role)) return false;
+
+    return switch (routeName) {
+      AppRoutes.dashboard || AppRoutes.branches => true,
+      AppRoutes.bookings => canCreateBooking(role),
+      AppRoutes.profile || AppRoutes.myBookings => canViewOwnProfile(role),
+      AppRoutes.desks || AppRoutes.meetingRooms => canManageResources(role),
+      AppRoutes.occupancy => canViewOccupancy(role),
+      _ => false,
+    };
   }
 }

@@ -4,10 +4,11 @@ enum UserRole { admin, branchManager, staff, member }
 
 extension UserRoleFirestoreValue on UserRole {
   static UserRole fromFirestoreValue(Object? value) {
-    return UserRole.values.firstWhere(
-      (role) => role.name == value,
-      orElse: () => UserRole.member,
-    );
+    for (final role in UserRole.values) {
+      if (role.name == value) return role;
+    }
+
+    throw FormatException('Invalid user role: $value');
   }
 }
 
