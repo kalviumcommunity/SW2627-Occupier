@@ -118,7 +118,10 @@ class OccupancyRepository {
         throw StateError('This resource is not available for check-in.');
       }
 
-      transaction.update(resourceRef, {'status': 'occupied'});
+      transaction.update(resourceRef, {
+        'status': 'occupied',
+        'activeOccupancyId': occupancyRef.id,
+      });
 
       final occupancyData = <String, dynamic>{
         'occupancyId': occupancyRef.id,
@@ -201,13 +204,21 @@ class OccupancyRepository {
           'Resource status is inconsistent. Please investigate.',
         );
       }
+      if (resourceSnapshot.data()?['activeOccupancyId'] != occupancyId) {
+        throw StateError(
+          'Resource is not assigned to this occupancy. Please investigate.',
+        );
+      }
 
       transaction.update(occupancyRef, {
         'status': OccupancyStatus.completed.name,
         'checkOutTime': FieldValue.serverTimestamp(),
       });
 
-      transaction.update(resourceRef, {'status': 'available'});
+      transaction.update(resourceRef, {
+        'status': 'available',
+        'activeOccupancyId': null,
+      });
     });
   }
 

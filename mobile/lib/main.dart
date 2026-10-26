@@ -16,6 +16,7 @@ import 'features/bookings/booking_flow_screen.dart';
 import 'firebase_options.dart';
 import 'features/bookings/my_bookings_screen.dart';
 import 'features/occupancy/walk_in_check_in_screen.dart';
+import 'features/occupancy/walk_in_check_out_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -195,7 +196,7 @@ class _OccupierAppState extends State<OccupierApp> {
     AppRoutes.meetingRooms: (_) =>
         const PlaceholderScreen(title: 'Meeting Rooms'),
     AppRoutes.bookings: (_) => BookingFlowScreen(),
-    AppRoutes.occupancy: (_) => const PlaceholderScreen(title: 'Occupancy'),
+    AppRoutes.occupancy: (_) => const WalkInCheckOutScreen(),
     AppRoutes.profile: (_) => const ProfileScreen(),
     ...?widget.routeBuilders,
     AppRoutes.myBookings: (_) => const MyBookingsScreen(),
