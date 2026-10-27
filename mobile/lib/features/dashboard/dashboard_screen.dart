@@ -25,8 +25,8 @@ class DashboardScreen extends StatelessWidget {
       );
     }
 
-    return FutureBuilder<OccupierUser?>(
-      future: UserRepository().getUser(uid),
+    return StreamBuilder<OccupierUser?>(
+      stream: UserRepository().watchUser(uid),
       builder: (context, profileSnapshot) {
         if (profileSnapshot.hasError) {
           return const Scaffold(
@@ -50,8 +50,11 @@ class DashboardScreen extends StatelessWidget {
         const permissions = PermissionService();
         return _buildDashboard(
           context,
+          currentUserId: uid,
+          currentUserRole: profile.role,
           canReadAllOccupancies: permissions.isAdministrator(profile.role),
           canManageOccupancy: permissions.canManageOccupancy(profile.role),
+          canManageUsers: permissions.canManageUsers(profile.role),
         );
       },
     );
@@ -59,8 +62,11 @@ class DashboardScreen extends StatelessWidget {
 
   Widget _buildDashboard(
     BuildContext context, {
+    required String currentUserId,
+    required UserRole currentUserRole,
     required bool canReadAllOccupancies,
     required bool canManageOccupancy,
+    required bool canManageUsers,
   }) {
     final repository = ResourceRepository();
     final occupancyService = OccupancyService();
@@ -84,6 +90,14 @@ class DashboardScreen extends StatelessWidget {
               icon: const Icon(Icons.logout),
               onPressed: () {
                 Navigator.pushNamed(context, AppRoutes.occupancy);
+              },
+            ),
+          if (canManageUsers)
+            IconButton(
+              tooltip: 'User management',
+              icon: const Icon(Icons.manage_accounts_outlined),
+              onPressed: () {
+                Navigator.pushNamed(context, AppRoutes.adminUserManagement);
               },
             ),
           IconButton(
@@ -123,6 +137,8 @@ class DashboardScreen extends StatelessWidget {
             occupancyRepository,
             occupancyService,
             branches,
+            currentUserId,
+            currentUserRole,
             canReadAllOccupancies,
           );
         },
@@ -136,6 +152,8 @@ class DashboardScreen extends StatelessWidget {
     OccupancyRepository occupancyRepository,
     OccupancyService occupancyService,
     List<Branch> branches,
+    String currentUserId,
+    UserRole currentUserRole,
     bool canReadAllOccupancies,
   ) {
     return StreamBuilder<List<Desk>>(
@@ -356,9 +374,12 @@ class DashboardScreen extends StatelessWidget {
                                       .clamp(0, totalCapacity)
                                       .toInt();
 
-                              final occupancyRate = totalCapacity == 0
-                                  ? 0.0
-                                  : occupiedCapacity / totalCapacity;
+                              final occupancyRate =
+                                  occupancyService.calculateOccupancyRate(
+                                    occupied: occupiedCapacity,
+                                    capacity: totalCapacity,
+                                  ) /
+                                  100;
 
                               return Card(
                                 margin: const EdgeInsets.only(bottom: 12),
@@ -386,6 +407,50 @@ class DashboardScreen extends StatelessWidget {
                                         label: 'Occupied',
                                         value: '$occupiedCapacity',
                                       ),
+                                      if (currentUserRole != UserRole.member &&
+                                          (currentUserRole == UserRole.admin ||
+                                              branch.managerUid ==
+                                                  currentUserId ||
+                                              branch.staffUids.contains(
+                                                currentUserId,
+                                              )))
+                                        StreamBuilder<List<Occupancy>>(
+                                          stream: occupancyRepository
+                                              .watchActiveOccupancies(
+                                                branchId: branch.id,
+                                              ),
+                                          builder: (context, snapshot) {
+                                            if (snapshot.hasError) {
+                                              return const Padding(
+                                                padding: EdgeInsets.only(
+                                                  top: 8,
+                                                ),
+                                                child: Text(
+                                                  'Unable to load active check-ins.',
+                                                ),
+                                              );
+                                            }
+                                            if (!snapshot.hasData) {
+                                              return const Padding(
+                                                padding: EdgeInsets.only(
+                                                  top: 8,
+                                                ),
+                                                child:
+                                                    LinearProgressIndicator(),
+                                              );
+                                            }
+                                            return Padding(
+                                              padding: const EdgeInsets.only(
+                                                top: 8,
+                                              ),
+                                              child: _BranchMetricRow(
+                                                label: 'Active check-ins',
+                                                value:
+                                                    '${snapshot.data!.length}',
+                                              ),
+                                            );
+                                          },
+                                        ),
                                       const SizedBox(height: 8),
                                       _BranchMetricRow(
                                         label: 'Available',

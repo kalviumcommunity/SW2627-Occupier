@@ -185,7 +185,10 @@ async function createWalkInAtomically(
       throw new Error('Resource is not available.');
     }
 
-    transaction.update(resourceRef, { status: 'occupied' });
+    transaction.update(resourceRef, {
+      status: 'occupied',
+      activeOccupancyId: occupancyId,
+    });
     transaction.set(occupancyRef, {
       occupancyId,
       branchId,
@@ -204,8 +207,8 @@ async function createWalkInAtomically(
   });
 }
 
-async function checkOutOccupancyAtomically(db, occupancyId) {
-  const occupancyRef = doc(db, 'occupancies', occupancyId);
+async function checkOutAtomically(db, occupancyId, { readDb = db } = {}) {
+  const occupancyRef = doc(readDb, 'occupancies', occupancyId);
 
   return runTransaction(db, async (transaction) => {
     const occupancySnapshot = await transaction.get(occupancyRef);
@@ -214,24 +217,91 @@ async function checkOutOccupancyAtomically(db, occupancyId) {
     }
 
     const occupancy = occupancySnapshot.data();
-    const resourceCollection = occupancy.resourceType === 'room' ? 'rooms' : 'desks';
+    const collectionName = occupancy.resourceType === 'desk' ? 'desks' : 'rooms';
     const resourceRef = doc(
       db,
       'branches',
       occupancy.branchId,
-      resourceCollection,
+      collectionName,
       occupancy.resourceId,
     );
     const resourceSnapshot = await transaction.get(resourceRef);
-    if (!resourceSnapshot.exists() || resourceSnapshot.data().status !== 'occupied') {
-      throw new Error('Resource is not occupied.');
+    if (
+      !resourceSnapshot.exists() ||
+      resourceSnapshot.data().status !== 'occupied' ||
+      resourceSnapshot.data().activeOccupancyId !== occupancyId
+    ) {
+      throw new Error('Resource does not belong to this occupancy.');
     }
+
+    transaction.update(doc(db, 'occupancies', occupancyId), {
+      status: 'completed',
+      checkOutTime: serverTimestamp(),
+    });
+    transaction.update(resourceRef, {
+      status: 'available',
+      activeOccupancyId: null,
+    });
+  });
+}
+
+async function submitCheckoutWrites(db, occupancyId) {
+  const occupancyRef = doc(db, 'occupancies', occupancyId);
+
+  return runTransaction(db, async (transaction) => {
+    const occupancySnapshot = await transaction.get(occupancyRef);
+    const occupancy = occupancySnapshot.data();
+    const collectionName = occupancy.resourceType === 'desk' ? 'desks' : 'rooms';
+    const resourceRef = doc(
+      db,
+      'branches',
+      occupancy.branchId,
+      collectionName,
+      occupancy.resourceId,
+    );
+    await transaction.get(resourceRef);
 
     transaction.update(occupancyRef, {
       status: 'completed',
       checkOutTime: serverTimestamp(),
     });
-    transaction.update(resourceRef, { status: 'available' });
+    transaction.update(resourceRef, {
+      status: 'available',
+      activeOccupancyId: null,
+    });
+  });
+}
+
+async function seedActiveOccupancy(
+  occupancyId,
+  { branchId = 'branch-1', resourceId = 'desk-1', resourceType = 'desk' } = {},
+) {
+  const collectionName = resourceType === 'desk' ? 'desks' : 'rooms';
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(
+      doc(db, 'occupancies', occupancyId),
+      validOccupancy({
+        occupancyId,
+        branchId,
+        resourceId,
+        resourceType,
+        userId: `walk-in-${occupancyId}`,
+        bookingId: null,
+        source: 'walkIn',
+      }),
+    );
+    await setDoc(
+      doc(db, 'branches', branchId, collectionName, resourceId),
+      {
+        name: resourceId,
+        status: 'occupied',
+        activeOccupancyId: occupancyId,
+        ...(resourceType === 'desk'
+          ? { type: 'hotDesk', floor: '1' }
+          : { capacity: 4, floor: '1', amenities: [] }),
+      },
+    );
   });
 }
 
@@ -383,6 +453,19 @@ test('denies reading or updating another user profile', async () => {
 test('allows a new account to create only a valid member profile', async () => {
   const db = testEnv.authenticatedContext('new-member').firestore();
 
+  for (const role of ['admin', 'staff', 'branchManager']) {
+    const userId = `new-${role}`;
+    const elevatedUserDb = testEnv.authenticatedContext(userId).firestore();
+    await assertFails(
+      setDoc(doc(elevatedUserDb, 'users', userId), {
+        uid: userId,
+        name: 'New User',
+        email: 'new@example.com',
+        role,
+      }),
+    );
+  }
+
   await assertSucceeds(
     setDoc(doc(db, 'users', 'new-member'), {
       uid: 'new-member',
@@ -405,9 +488,9 @@ test('allows a new account to create only a valid member profile', async () => {
 test('denies ordinary users from changing roles or adding authorization fields', async () => {
   const db = testEnv.authenticatedContext('member-1').firestore();
 
-  await assertFails(
-    updateDoc(doc(db, 'users', 'member-1'), { role: 'admin' }),
-  );
+  for (const role of ['admin', 'staff', 'branchManager']) {
+    await assertFails(updateDoc(doc(db, 'users', 'member-1'), { role }));
+  }
   await assertFails(
     updateDoc(doc(db, 'users', 'member-1'), { isAdmin: true }),
   );
@@ -584,12 +667,20 @@ test('denies users from creating or changing unauthorized bookings', async () =>
     ),
   );
 
+  const bookingWithoutReservation = validBooking();
+  await assertFails(
+    setDoc(doc(db, 'bookings', 'booking-without-reservation'), {
+      ...bookingWithoutReservation,
+      createdAt: serverTimestamp(),
+    }),
+  );
+
   await writeBooking(db);
 
-// A booking cannot be cancelled without updating its schedule atomically.
-await assertFails(
-  updateDoc(doc(db, 'bookings', 'booking-1'), { status: 'cancelled' }),
-);
+  // A booking cannot be cancelled without updating its schedule atomically.
+  await assertFails(
+    updateDoc(doc(db, 'bookings', 'booking-1'), { status: 'cancelled' }),
+  );
   await assertFails(
     updateDoc(doc(db, 'bookings', 'booking-1'), {
       status: 'cancelled',
@@ -645,8 +736,12 @@ test('ordinary users cannot modify branches or resource availability', async () 
   const db = testEnv.authenticatedContext('member-1').firestore();
 
   await assertFails(
+    setDoc(doc(db, 'branches', 'branch-2'), validBranch()),
+  );
+  await assertFails(
     updateDoc(doc(db, 'branches', 'branch-1'), { status: 'inactive' }),
   );
+  await assertFails(deleteDoc(doc(db, 'branches', 'branch-1')));
   await assertFails(
     setDoc(
       doc(db, 'branches', 'branch-1', 'desks', 'desk-2'),
@@ -691,6 +786,11 @@ test('an administrator can perform protected administrative operations', async (
       status: 'available',
     }),
   );
+  await assertSucceeds(
+    updateDoc(doc(db, 'branches', 'branch-2', 'desks', 'desk-1'), {
+      status: 'maintenance',
+    }),
+  );
 });
 
 test('branch managers can create valid resources only in their assigned branch', async () => {
@@ -705,23 +805,32 @@ test('branch managers can create valid resources only in their assigned branch',
 
   const db = testEnv.authenticatedContext('manager-1').firestore();
   const desk = {
-    name: 'Desk 1',
+    name: 'New Desk',
     type: 'hotDesk',
     floor: '1',
     status: 'available',
   };
 
   await assertSucceeds(
-    setDoc(doc(db, 'branches', 'branch-1', 'desks', 'desk-1'), desk),
+    setDoc(doc(db, 'branches', 'branch-1', 'desks', 'manager-created-desk'), desk),
   );
   await assertFails(
-    setDoc(doc(db, 'branches', 'branch-2', 'desks', 'desk-1'), desk),
+    setDoc(
+      doc(db, 'branches', 'branch-2', 'desks', 'manager-created-desk'),
+      desk,
+    ),
   );
   await assertFails(
     setDoc(doc(db, 'branches', 'branch-1', 'desks', 'invalid-desk'), {
       ...desk,
       isAdmin: true,
     }),
+  );
+  await assertFails(
+    updateDoc(
+      doc(db, 'branches', 'branch-1', 'desks', 'manager-created-desk'),
+      { status: 'maintenance' },
+    ),
   );
 });
 
@@ -734,16 +843,11 @@ test('branch staff can manage occupancy only in an assigned branch', async () =>
       email: 'staff@example.com',
       role: 'staff',
     });
-    await setDoc(doc(db, 'occupancies', 'occupancy-1'), validOccupancy());
   });
+  await seedActiveOccupancy('occupancy-1');
 
   const staffDb = testEnv.authenticatedContext('staff-1').firestore();
-  await assertSucceeds(
-    updateDoc(doc(staffDb, 'occupancies', 'occupancy-1'), {
-      status: 'completed',
-      checkOutTime: new Date('2026-10-16T10:00:00Z'),
-    }),
-  );
+  await assertSucceeds(checkOutAtomically(staffDb, 'occupancy-1'));
   await assertFails(
     updateDoc(doc(staffDb, 'occupancies', 'occupancy-1'), {
       status: 'completed',
@@ -753,7 +857,7 @@ test('branch staff can manage occupancy only in an assigned branch', async () =>
   );
 });
 
-test('assigned staff can check out a legacy walk-in without customer fields', async () => {
+test('checkout fails for a legacy occupancy without resource ownership link', async () => {
   await testEnv.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore();
     await setDoc(doc(db, 'users', 'staff-1'), {
@@ -771,18 +875,19 @@ test('assigned staff can check out a legacy walk-in without customer fields', as
         source: 'walkIn',
       }),
     );
+    await setDoc(doc(db, 'branches', 'branch-1', 'desks', 'desk-1'), {
+      name: 'Desk 1',
+      type: 'hotDesk',
+      floor: '1',
+      status: 'occupied',
+    });
   });
 
   const staffDb = testEnv.authenticatedContext('staff-1').firestore();
-  await assertSucceeds(
-    updateDoc(doc(staffDb, 'occupancies', 'legacy-walk-in'), {
-      status: 'completed',
-      checkOutTime: new Date('2026-10-16T10:00:00Z'),
-    }),
-  );
+  await assertFails(submitCheckoutWrites(staffDb, 'legacy-walk-in'));
 });
 
-test('assigned staff can create walk-in occupancy only in their branch', async () => {
+test('assigned staff must create walk-in occupancy with a resource update', async () => {
   await testEnv.withSecurityRulesDisabled(async (context) => {
     await setDoc(doc(context.firestore(), 'users', 'staff-1'), {
       uid: 'staff-1',
@@ -809,7 +914,7 @@ test('assigned staff can create walk-in occupancy only in their branch', async (
     customerPhone: '+1 555 0100',
   };
 
-  await assertSucceeds(setDoc(doc(db, 'occupancies', 'walk-in-1'), occupancy));
+  await assertFails(setDoc(doc(db, 'occupancies', 'walk-in-1'), occupancy));
   const { customerName, customerPhone, ...missingCustomerData } = occupancy;
   await assertFails(
     setDoc(
@@ -817,6 +922,7 @@ test('assigned staff can create walk-in occupancy only in their branch', async (
       missingCustomerData,
     ),
   );
+  await assertSucceeds(createWalkInAtomically(db, 'walk-in-atomic'));
   await assertFails(
     setDoc(doc(db, 'occupancies', 'walk-in-2'), {
       ...occupancy,
@@ -846,6 +952,143 @@ test('assigned staff can atomically check in a walk-in and occupy a resource', a
   assert.equal(resource.data().status, 'occupied');
   assert.equal(occupancy.data().status, 'active');
   assert.equal(occupancy.data().customerName, 'Walk-in Customer');
+  assert.equal(resource.data().activeOccupancyId, 'walk-in-atomic-1');
+});
+
+test('checkout requires staff authorization and one atomic matching resource update', async () => {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), 'users', 'staff-1'), {
+      uid: 'staff-1',
+      name: 'Staff',
+      email: 'staff@example.com',
+      role: 'staff',
+    });
+  });
+  await seedActiveOccupancy('checkout-authorization');
+
+  const memberDb = testEnv.authenticatedContext('member-1').firestore();
+  const staffDb = testEnv.authenticatedContext('staff-1').firestore();
+  await assertFails(checkOutAtomically(memberDb, 'checkout-authorization'));
+
+  await assertFails(
+    updateDoc(doc(staffDb, 'occupancies', 'checkout-authorization'), {
+      status: 'completed',
+      checkOutTime: serverTimestamp(),
+    }),
+  );
+  await assertFails(
+    updateDoc(
+      doc(staffDb, 'branches', 'branch-1', 'desks', 'desk-1'),
+      { status: 'available', activeOccupancyId: null },
+    ),
+  );
+
+  await assertSucceeds(
+    checkOutAtomically(staffDb, 'checkout-authorization'),
+  );
+  await assertFails(submitCheckoutWrites(staffDb, 'checkout-authorization'));
+
+  const occupancy = await getDoc(
+    doc(staffDb, 'occupancies', 'checkout-authorization'),
+  );
+  const resource = await getDoc(
+    doc(staffDb, 'branches', 'branch-1', 'desks', 'desk-1'),
+  );
+  assert.equal(occupancy.data().status, 'completed');
+  assert.equal(typeof occupancy.data().checkOutTime.toDate, 'function');
+  assert.equal(resource.data().status, 'available');
+  assert.equal(resource.data().activeOccupancyId, null);
+});
+
+test('concurrent checkouts release a resource only once', async () => {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), 'users', 'staff-1'), {
+      uid: 'staff-1',
+      name: 'Staff',
+      email: 'staff@example.com',
+      role: 'staff',
+    });
+  });
+  await seedActiveOccupancy('checkout-concurrent');
+
+  const staffDb = testEnv.authenticatedContext('staff-1').firestore();
+  const results = await Promise.allSettled([
+    checkOutAtomically(staffDb, 'checkout-concurrent'),
+    checkOutAtomically(staffDb, 'checkout-concurrent'),
+  ]);
+
+  assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
+  assert.equal(results.filter((result) => result.status === 'rejected').length, 1);
+  const occupancy = await getDoc(
+    doc(staffDb, 'occupancies', 'checkout-concurrent'),
+  );
+  const resource = await getDoc(
+    doc(staffDb, 'branches', 'branch-1', 'desks', 'desk-1'),
+  );
+  assert.equal(occupancy.data().status, 'completed');
+  assert.equal(resource.data().status, 'available');
+});
+
+test('checkout cannot release a resource linked to another occupancy', async () => {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), 'users', 'staff-1'), {
+      uid: 'staff-1',
+      name: 'Staff',
+      email: 'staff@example.com',
+      role: 'staff',
+    });
+  });
+  await seedActiveOccupancy('checkout-wrong-owner');
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await updateDoc(
+      doc(
+        context.firestore(),
+        'branches',
+        'branch-1',
+        'desks',
+        'desk-1',
+      ),
+      { activeOccupancyId: 'another-active-session' },
+    );
+  });
+
+  const staffDb = testEnv.authenticatedContext('staff-1').firestore();
+  await assertFails(
+    runTransaction(staffDb, async (transaction) => {
+      const occupancyRef = doc(
+        staffDb,
+        'occupancies',
+        'checkout-wrong-owner',
+      );
+      const resourceRef = doc(
+        staffDb,
+        'branches',
+        'branch-1',
+        'desks',
+        'desk-1',
+      );
+      await transaction.get(occupancyRef);
+      await transaction.get(resourceRef);
+      transaction.update(occupancyRef, {
+        status: 'completed',
+        checkOutTime: serverTimestamp(),
+      });
+      transaction.update(resourceRef, {
+        status: 'available',
+        activeOccupancyId: null,
+      });
+    }),
+  );
+
+  const occupancy = await getDoc(
+    doc(staffDb, 'occupancies', 'checkout-wrong-owner'),
+  );
+  const resource = await getDoc(
+    doc(staffDb, 'branches', 'branch-1', 'desks', 'desk-1'),
+  );
+  assert.equal(occupancy.data().status, 'active');
+  assert.equal(resource.data().status, 'occupied');
+  assert.equal(resource.data().activeOccupancyId, 'another-active-session');
 });
 
 test('assigned staff can atomically check out a walk-in and release its resource', async () => {
@@ -1091,4 +1334,5 @@ test('a user can access only their own profile image in Storage', async () => {
   await assertFails(
     deleteObject(ref(otherStorage, 'profile_photos/photo-owner.jpg')),
   );
+  await assertFails(deleteObject(ownerRef));
 });

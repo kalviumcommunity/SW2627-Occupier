@@ -22,8 +22,7 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   final TextEditingController _nameController = TextEditingController();
   late final UserRepository _userRepository = UserRepository();
-  final UserRepository _userRepository = UserRepository();
-  final ProfileImageService _profileImageService = ProfileImageService();
+  late final ProfileImageService _profileImageService = ProfileImageService();
   final ImagePicker _imagePicker = ImagePicker();
 
   late Future<OccupierUser?> _profileFuture;

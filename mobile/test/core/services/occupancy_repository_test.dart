@@ -187,6 +187,7 @@ void main() {
         .get();
 
     expect(resource.data()?['status'], 'occupied');
+    expect(resource.data()?['activeOccupancyId'], occupancyId);
     expect(occupancy.data()?['occupancyId'], occupancyId);
     expect(occupancy.data()?['branchId'], branchId);
     expect(occupancy.data()?['resourceId'], 'desk-1');
@@ -231,9 +232,133 @@ void main() {
         .get();
 
     expect(room.data()?['status'], 'occupied');
+    expect(room.data()?['activeOccupancyId'], occupancyId);
     expect(occupancy.data()?['resourceType'], 'room');
     expect(occupancy.data()?['source'], 'walkIn');
   });
+
+  test('checks out a walk-in and releases its desk atomically', () async {
+    await firestore.collection('branches').doc(branchId).set({
+      'name': 'Test Branch',
+    });
+    await firestore
+        .collection('branches')
+        .doc(branchId)
+        .collection('desks')
+        .doc('desk-1')
+        .set({'status': 'available'});
+
+    final occupancyId = await repository.createWalkInOccupancy(
+      branchId: branchId,
+      resourceId: 'desk-1',
+      resourceType: 'desk',
+      customerName: 'Alex Customer',
+      customerPhone: '555-0100',
+    );
+
+    await repository.checkOut(occupancyId);
+
+    final occupancy = await firestore
+        .collection('occupancies')
+        .doc(occupancyId)
+        .get();
+    final resource = await firestore
+        .collection('branches')
+        .doc(branchId)
+        .collection('desks')
+        .doc('desk-1')
+        .get();
+
+    expect(occupancy.data()?['status'], OccupancyStatus.completed.name);
+    expect(occupancy.data()?['checkOutTime'], isA<Timestamp>());
+    expect(resource.data()?['status'], 'available');
+    expect(resource.data()?['activeOccupancyId'], isNull);
+    expect(
+      await repository.watchActiveOccupancies(branchId: branchId).first,
+      isEmpty,
+    );
+  });
+
+  test(
+    'rejects repeated checkout without changing the available resource',
+    () async {
+      await firestore.collection('branches').doc(branchId).set({
+        'name': 'Test Branch',
+      });
+      await firestore
+          .collection('branches')
+          .doc(branchId)
+          .collection('desks')
+          .doc('desk-1')
+          .set({'status': 'available'});
+
+      final occupancyId = await repository.createWalkInOccupancy(
+        branchId: branchId,
+        resourceId: 'desk-1',
+        resourceType: 'desk',
+        customerName: 'Alex Customer',
+        customerPhone: '555-0100',
+      );
+      await repository.checkOut(occupancyId);
+
+      await expectLater(
+        repository.checkOut(occupancyId),
+        throwsA(isA<StateError>()),
+      );
+
+      final resource = await firestore
+          .collection('branches')
+          .doc(branchId)
+          .collection('desks')
+          .doc('desk-1')
+          .get();
+      expect(resource.data()?['status'], 'available');
+      expect(resource.data()?['activeOccupancyId'], isNull);
+    },
+  );
+
+  test(
+    'does not release a resource owned by another active occupancy',
+    () async {
+      await firestore.collection('branches').doc(branchId).set({
+        'name': 'Test Branch',
+      });
+      await firestore
+          .collection('branches')
+          .doc(branchId)
+          .collection('desks')
+          .doc('desk-1')
+          .set({'status': 'occupied', 'activeOccupancyId': 'other-occupancy'});
+      await firestore
+          .collection('occupancies')
+          .doc('occupancy-1')
+          .set(
+            occupancyData(
+              branchId: branchId,
+              status: OccupancyStatus.active.name,
+            ),
+          );
+
+      await expectLater(
+        repository.checkOut('occupancy-1'),
+        throwsA(isA<StateError>()),
+      );
+
+      final occupancy = await firestore
+          .collection('occupancies')
+          .doc('occupancy-1')
+          .get();
+      final resource = await firestore
+          .collection('branches')
+          .doc(branchId)
+          .collection('desks')
+          .doc('desk-1')
+          .get();
+      expect(occupancy.data()?['status'], OccupancyStatus.active.name);
+      expect(resource.data()?['status'], 'occupied');
+      expect(resource.data()?['activeOccupancyId'], 'other-occupancy');
+    },
+  );
 
   test('rejects a resource occupied before the transaction', () async {
     await firestore.collection('branches').doc(branchId).set({

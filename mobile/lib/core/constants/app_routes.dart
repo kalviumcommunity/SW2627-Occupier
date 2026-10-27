@@ -12,4 +12,5 @@ class AppRoutes {
   static const String profile = '/profile';
   static const String myBookings = '/my-bookings';
   static const String walkInCheckIn = '/walk-in-check-in';
+  static const String adminUserManagement = '/admin/users';
 }

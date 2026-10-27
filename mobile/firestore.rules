@@ -226,6 +226,7 @@ service cloud.firestore {
           'type',
           'floor',
           'status',
+          'activeOccupancyId',
           'createdAt'
         ])
         && request.resource.data.keys().hasAll([
@@ -244,6 +245,10 @@ service cloud.firestore {
           'inactive'
         ]
         && (
+          request.resource.data.get('activeOccupancyId', null) == null
+          || request.resource.data.activeOccupancyId is string
+        )
+        && (
           request.resource.data.get('createdAt', null) == null
           || request.resource.data.createdAt is timestamp
         );
@@ -256,6 +261,7 @@ service cloud.firestore {
           'floor',
           'amenities',
           'status',
+          'activeOccupancyId',
           'createdAt'
         ])
         && request.resource.data.keys().hasAll([
@@ -276,6 +282,10 @@ service cloud.firestore {
           'maintenance',
           'inactive'
         ]
+        && (
+          request.resource.data.get('activeOccupancyId', null) == null
+          || request.resource.data.activeOccupancyId is string
+        )
         && (
           request.resource.data.get('createdAt', null) == null
           || request.resource.data.createdAt is timestamp
@@ -390,8 +400,145 @@ service cloud.firestore {
         );
     }
 
+    function resourcePath(branchId, resourceId, resourceType) {
+      return resourceType == 'desk'
+        ? /databases/$(database)/documents/branches/$(branchId)/desks/$(resourceId)
+        : /databases/$(database)/documents/branches/$(branchId)/rooms/$(resourceId);
+    }
+
+    function occupancyPath(occupancyId) {
+      return /databases/$(database)/documents/occupancies/$(occupancyId);
+    }
+
+    function hasMatchingActiveOccupancyAfter(
+      occupancyId,
+      branchId,
+      resourceId,
+      resourceType
+    ) {
+      let path = occupancyPath(occupancyId);
+
+      return occupancyId is string
+        && existsAfter(path)
+        && getAfter(path).data.status == 'active'
+        && getAfter(path).data.branchId == branchId
+        && getAfter(path).data.resourceId == resourceId
+        && getAfter(path).data.resourceType == resourceType
+        && getAfter(path).data.checkInTime == request.time;
+    }
+
+    function hasMatchingCompletedOccupancyAfter(
+      occupancyId,
+      branchId,
+      resourceId,
+      resourceType
+    ) {
+      let path = occupancyPath(occupancyId);
+
+      return occupancyId is string
+        && exists(path)
+        && get(path).data.status == 'active'
+        && get(path).data.branchId == branchId
+        && get(path).data.resourceId == resourceId
+        && get(path).data.resourceType == resourceType
+        && existsAfter(path)
+        && getAfter(path).data.status == 'completed'
+        && getAfter(path).data.checkOutTime == request.time;
+    }
+
+    function validResourceCheckIn(branchId, resourceId, resourceType) {
+      let occupancyId = request.resource.data.get('activeOccupancyId', null);
+
+      return resource.data.status == 'available'
+        && request.resource.data.status == 'occupied'
+        && resource.data.get('activeOccupancyId', null) == null
+        && hasMatchingActiveOccupancyAfter(
+          occupancyId,
+          branchId,
+          resourceId,
+          resourceType
+        );
+    }
+
+    function validResourceCheckOut(branchId, resourceId, resourceType) {
+      let occupancyId = resource.data.get('activeOccupancyId', null);
+
+      return resource.data.status == 'occupied'
+        && request.resource.data.status == 'available'
+        && occupancyId is string
+        && request.resource.data.get('activeOccupancyId', null) == null
+        && hasMatchingCompletedOccupancyAfter(
+          occupancyId,
+          branchId,
+          resourceId,
+          resourceType
+        );
+    }
+
+    function validResourceUpdate(branchId, resourceId, resourceType) {
+      return validDeskOrRoomDocument(resourceType)
+        && (
+          (
+            isAdmin()
+            && request.resource.data.status == resource.data.status
+            && request.resource.data.get('activeOccupancyId', null)
+              == resource.data.get('activeOccupancyId', null)
+          )
+          || (
+            isAdmin()
+            && resource.data.status != 'occupied'
+            && request.resource.data.status != 'occupied'
+            && resource.data.get('activeOccupancyId', null) == null
+            && request.resource.data.get('activeOccupancyId', null) == null
+          )
+          || (
+            (isAdmin() || canManageAssignedBranch(branchId))
+            && request.resource.data.diff(resource.data)
+              .affectedKeys().hasOnly(['status', 'activeOccupancyId'])
+            && (
+              validResourceCheckIn(branchId, resourceId, resourceType)
+              || validResourceCheckOut(branchId, resourceId, resourceType)
+            )
+          )
+        );
+    }
+
+    function validDeskOrRoomDocument(resourceType) {
+      return resourceType == 'desk'
+        ? validDeskDocument()
+        : validRoomDocument();
+    }
+
     function isAssignedBranchOccupancy(occupancyData) {
       return isAdmin() || canManageAssignedBranch(occupancyData.branchId);
+    }
+
+    function validOccupancyCheckout(occupancyId) {
+      let data = resource.data;
+      let resourceDocument = resourcePath(
+        data.branchId,
+        data.resourceId,
+        data.resourceType
+      );
+
+      return isSignedIn()
+        && (isAdmin() || canManageAssignedBranch(data.branchId))
+        && validOccupancyDocument(occupancyId)
+        && data.status == 'active'
+        && data.checkOutTime == null
+        && request.resource.data.status == 'completed'
+        && request.resource.data.checkOutTime == request.time
+        && request.resource.data.diff(data)
+          .affectedKeys().hasOnly(['status', 'checkOutTime'])
+        && data.get('activeOccupancyId', null) == null
+        && exists(resourceDocument)
+        && get(resourceDocument).data.status == 'occupied'
+        && get(resourceDocument).data.get('activeOccupancyId', null)
+          == occupancyId
+        && existsAfter(resourceDocument)
+        && getAfter(resourceDocument).data.status == 'available'
+        && getAfter(resourceDocument).data.get('activeOccupancyId', null)
+          == null;
     }
 
     match /users/{userId} {
@@ -757,43 +904,29 @@ service cloud.firestore {
       match /desks/{deskId} {
         allow read: if isSignedIn();
         allow create: if validDeskDocument()
+          && request.resource.data.status != 'occupied'
+          && request.resource.data.get('activeOccupancyId', null) == null
           && (
             isAdmin()
             || (isBranchManager() && isAssignedToBranch(branchId))
           );
         allow delete: if isAdmin()
           || (isBranchManager() && isAssignedToBranch(branchId));
-        allow update: if (
-            isAdmin() && validDeskDocument()
-          )
-          || (
-            canManageAssignedBranch(branchId)
-            && validDeskDocument()
-            && request.resource.data.diff(resource.data)
-              .affectedKeys().hasOnly(['status'])
-            && request.resource.data.status in ['available', 'occupied']
-          );
+        allow update: if validResourceUpdate(branchId, deskId, 'desk');
       }
 
       match /rooms/{roomId} {
         allow read: if isSignedIn();
         allow create: if validRoomDocument()
+          && request.resource.data.status != 'occupied'
+          && request.resource.data.get('activeOccupancyId', null) == null
           && (
             isAdmin()
             || (isBranchManager() && isAssignedToBranch(branchId))
           );
         allow delete: if isAdmin()
           || (isBranchManager() && isAssignedToBranch(branchId));
-        allow update: if (
-            isAdmin() && validRoomDocument()
-          )
-          || (
-            canManageAssignedBranch(branchId)
-            && validRoomDocument()
-            && request.resource.data.diff(resource.data)
-              .affectedKeys().hasOnly(['status'])
-            && request.resource.data.status in ['available', 'occupied']
-          );
+        allow update: if validResourceUpdate(branchId, roomId, 'room');
       }
     }
 
@@ -825,33 +958,20 @@ service cloud.firestore {
             request.resource.data.source == 'walkIn'
             && isAssignedBranchOccupancy(request.resource.data)
             && validWalkInCustomer(request.resource.data)
+            && getAfter(resourcePath(
+              request.resource.data.branchId,
+              request.resource.data.resourceId,
+              request.resource.data.resourceType
+            )).data.status == 'occupied'
+            && getAfter(resourcePath(
+              request.resource.data.branchId,
+              request.resource.data.resourceId,
+              request.resource.data.resourceType
+            )).data.get('activeOccupancyId', null) == occupancyId
           )
         );
 
-      allow update: if isAdmin()
-        && validOccupancyDocument(occupancyId)
-        || (
-          isSignedIn()
-          && validOccupancyDocument(occupancyId)
-          && resource.data.status == 'active'
-          && request.resource.data.status == 'completed'
-          && request.resource.data.checkOutTime is timestamp
-          && request.resource.data.diff(resource.data)
-            .affectedKeys().hasOnly(['status', 'checkOutTime'])
-          && request.resource.data.occupancyId == resource.data.occupancyId
-          && request.resource.data.userId == resource.data.userId
-          && request.resource.data.branchId == resource.data.branchId
-          && request.resource.data.resourceId == resource.data.resourceId
-          && request.resource.data.resourceType == resource.data.resourceType
-          && request.resource.data.bookingId == resource.data.bookingId
-          && request.resource.data.checkInTime == resource.data.checkInTime
-          && request.resource.data.createdAt == resource.data.createdAt
-          && request.resource.data.source == resource.data.source
-          && (
-            resource.data.userId == request.auth.uid
-            || isAssignedBranchOccupancy(resource.data)
-          )
-        );
+      allow update: if validOccupancyCheckout(occupancyId);
 
       allow delete: if isAdmin();
     }

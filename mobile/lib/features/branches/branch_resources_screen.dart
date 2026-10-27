@@ -1,84 +1,236 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/services/permission_service.dart';
 import '../../core/services/resource_repository.dart';
+import '../../core/services/user_repository.dart';
 import '../../models/branch.dart';
 import '../../models/desk.dart';
 import '../../models/meeting_room.dart';
+import '../../models/user.dart';
+import 'resource_form_dialogs.dart';
 
-class BranchResourcesScreen extends StatelessWidget {
-  const BranchResourcesScreen({
+class BranchResourcesScreen extends StatefulWidget {
+  BranchResourcesScreen({
     super.key,
     required this.branch,
     required this.repository,
-  });
+    UserRepository? userRepository,
+    String? Function()? currentUserId,
+  }) : userRepository = userRepository ?? UserRepository(),
+       currentUserId =
+           currentUserId ?? (() => FirebaseAuth.instance.currentUser?.uid);
 
   final Branch branch;
   final ResourceRepository repository;
+  final UserRepository userRepository;
+  final String? Function() currentUserId;
+
+  @override
+  State<BranchResourcesScreen> createState() => _BranchResourcesScreenState();
+}
+
+class _BranchResourcesScreenState extends State<BranchResourcesScreen> {
+  late final String? _currentUid;
+  late final Future<OccupierUser?> _profileFuture;
+
+  @override
+  void initState() {
+    super.initState();
+
+    final uid = widget.currentUserId();
+    _currentUid = uid;
+
+    _profileFuture = uid == null
+        ? Future<OccupierUser?>.value(null)
+        : widget.userRepository.getUser(uid);
+  }
+
+  bool _canManageResources(OccupierUser profile) {
+    const permissions = PermissionService();
+
+    if (!permissions.canManageResources(profile.role)) {
+      return false;
+    }
+
+    if (profile.role == UserRole.admin) {
+      return true;
+    }
+
+    // Match the branch assignment requirement enforced by Firestore rules.
+    return profile.role == UserRole.branchManager &&
+        (widget.branch.managerUid == profile.uid ||
+            widget.branch.staffUids.contains(profile.uid));
+  }
+
+  Future<void> _addResource(_AddResourceType type) async {
+    final created = await showDialog<bool>(
+      context: context,
+      builder: (_) {
+        return switch (type) {
+          _AddResourceType.desk => AddDeskDialog(
+            branchId: widget.branch.id,
+            repository: widget.repository,
+          ),
+          _AddResourceType.meetingRoom => AddMeetingRoomDialog(
+            branchId: widget.branch.id,
+            repository: widget.repository,
+          ),
+        };
+      },
+    );
+
+    if (!mounted || created != true) return;
+
+    final resourceLabel = type == _AddResourceType.desk
+        ? 'Desk'
+        : 'Meeting room';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('$resourceLabel added successfully.')),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    return DefaultTabController(
-      length: 2,
-      child: Scaffold(
-        appBar: AppBar(title: Text(branch.name)),
-        body: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Card(
-                child: Padding(
+    return FutureBuilder<OccupierUser?>(
+      future: _profileFuture,
+      builder: (context, profileSnapshot) {
+        if (profileSnapshot.connectionState == ConnectionState.waiting) {
+          return Scaffold(
+            appBar: AppBar(title: Text(widget.branch.name)),
+            body: const Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        if (profileSnapshot.hasError) {
+          return Scaffold(
+            appBar: AppBar(title: Text(widget.branch.name)),
+            body: const _MessageState(
+              message: 'Unable to load your access profile.',
+            ),
+          );
+        }
+
+        final profile = profileSnapshot.data;
+        if (profile == null || _currentUid == null) {
+          return Scaffold(
+            appBar: AppBar(title: Text(widget.branch.name)),
+            body: const _MessageState(
+              message: 'Sign in with a valid Occupier profile to continue.',
+            ),
+          );
+        }
+
+        final canManageResources = _canManageResources(profile);
+
+        return DefaultTabController(
+          length: 2,
+          child: Scaffold(
+            appBar: AppBar(
+              title: Text(widget.branch.name),
+              actions: [
+                if (canManageResources)
+                  PopupMenuButton<_AddResourceType>(
+                    tooltip: 'Add resource',
+                    icon: const Icon(Icons.add),
+                    onSelected: _addResource,
+                    itemBuilder: (context) => const [
+                      PopupMenuItem(
+                        value: _AddResourceType.desk,
+                        child: Row(
+                          children: [
+                            Icon(Icons.event_seat),
+                            SizedBox(width: 12),
+                            Text('Add desk'),
+                          ],
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: _AddResourceType.meetingRoom,
+                        child: Row(
+                          children: [
+                            Icon(Icons.meeting_room),
+                            SizedBox(width: 12),
+                            Text('Add meeting room'),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+            body: Column(
+              children: [
+                Padding(
                   padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  child: Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '${widget.branch.address}, ${widget.branch.city}',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Opening hours: ${widget.branch.openingTime}–'
+                            '${widget.branch.closingTime}',
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '${widget.branch.totalDeskCapacity} desks · '
+                            '${widget.branch.totalRoomCapacity} meeting rooms',
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const TabBar(
+                  tabs: [
+                    Tab(icon: Icon(Icons.event_seat), text: 'Desks'),
+                    Tab(icon: Icon(Icons.meeting_room), text: 'Meeting Rooms'),
+                  ],
+                ),
+                Expanded(
+                  child: TabBarView(
                     children: [
-                      Text(
-                        '${branch.address}, ${branch.city}',
-                        style: Theme.of(context).textTheme.titleMedium,
+                      _DesksList(
+                        branchId: widget.branch.id,
+                        repository: widget.repository,
+                        canManageStatus: profile.role == UserRole.admin,
                       ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Opening hours: ${branch.openingTime}–'
-                        '${branch.closingTime}',
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${branch.totalDeskCapacity} desks · '
-                        '${branch.totalRoomCapacity} meeting rooms',
+                      _MeetingRoomsList(
+                        branchId: widget.branch.id,
+                        repository: widget.repository,
+                        canManageStatus: profile.role == UserRole.admin,
                       ),
                     ],
                   ),
                 ),
-              ),
-            ),
-            const TabBar(
-              tabs: [
-                Tab(icon: Icon(Icons.event_seat), text: 'Desks'),
-                Tab(icon: Icon(Icons.meeting_room), text: 'Meeting Rooms'),
               ],
             ),
-            Expanded(
-              child: TabBarView(
-                children: [
-                  _DesksList(branchId: branch.id, repository: repository),
-                  _MeetingRoomsList(
-                    branchId: branch.id,
-                    repository: repository,
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }
 
+enum _AddResourceType { desk, meetingRoom }
+
 class _DesksList extends StatelessWidget {
-  const _DesksList({required this.branchId, required this.repository});
+  const _DesksList({
+    required this.branchId,
+    required this.repository,
+    required this.canManageStatus,
+  });
 
   final String branchId;
   final ResourceRepository repository;
+  final bool canManageStatus;
 
   @override
   Widget build(BuildContext context) {
@@ -116,7 +268,38 @@ class _DesksList extends StatelessWidget {
                 subtitle: Text(
                   '${_formatValue(desk.type)} · Floor ${desk.floor}',
                 ),
-                trailing: _StatusChip(status: desk.status.name),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _StatusChip(status: desk.status.name),
+                    if (canManageStatus &&
+                        desk.status != DeskStatus.occupied &&
+                        !(desk.activeOccupancyId?.trim().isNotEmpty ?? false))
+                      PopupMenuButton<DeskStatus>(
+                        tooltip: 'Change status for ${desk.name}',
+                        onSelected: (status) => _confirmDeskStatusChange(
+                          context,
+                          repository,
+                          branchId,
+                          desk,
+                          status,
+                        ),
+                        itemBuilder: (context) => DeskStatus.values
+                            .where(
+                              (status) =>
+                                  status != DeskStatus.occupied &&
+                                  status != desk.status,
+                            )
+                            .map(
+                              (status) => PopupMenuItem<DeskStatus>(
+                                value: status,
+                                child: Text(_formatValue(status.name)),
+                              ),
+                            )
+                            .toList(),
+                      ),
+                  ],
+                ),
               ),
             );
           },
@@ -127,10 +310,15 @@ class _DesksList extends StatelessWidget {
 }
 
 class _MeetingRoomsList extends StatelessWidget {
-  const _MeetingRoomsList({required this.branchId, required this.repository});
+  const _MeetingRoomsList({
+    required this.branchId,
+    required this.repository,
+    required this.canManageStatus,
+  });
 
   final String branchId;
   final ResourceRepository repository;
+  final bool canManageStatus;
 
   @override
   Widget build(BuildContext context) {
@@ -176,7 +364,38 @@ class _MeetingRoomsList extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
                 isThreeLine: true,
-                trailing: _StatusChip(status: room.status.name),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _StatusChip(status: room.status.name),
+                    if (canManageStatus &&
+                        room.status != MeetingRoomStatus.occupied &&
+                        !(room.activeOccupancyId?.trim().isNotEmpty ?? false))
+                      PopupMenuButton<MeetingRoomStatus>(
+                        tooltip: 'Change status for ${room.name}',
+                        onSelected: (status) => _confirmRoomStatusChange(
+                          context,
+                          repository,
+                          branchId,
+                          room,
+                          status,
+                        ),
+                        itemBuilder: (context) => MeetingRoomStatus.values
+                            .where(
+                              (status) =>
+                                  status != MeetingRoomStatus.occupied &&
+                                  status != room.status,
+                            )
+                            .map(
+                              (status) => PopupMenuItem<MeetingRoomStatus>(
+                                value: status,
+                                child: Text(_formatValue(status.name)),
+                              ),
+                            )
+                            .toList(),
+                      ),
+                  ],
+                ),
               ),
             );
           },
@@ -251,4 +470,106 @@ String _formatValue(String value) {
             : '${word[0].toUpperCase()}${word.substring(1)}',
       )
       .join(' ');
+}
+
+Future<void> _confirmDeskStatusChange(
+  BuildContext context,
+  ResourceRepository repository,
+  String branchId,
+  Desk desk,
+  DeskStatus status,
+) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: const Text('Change desk status?'),
+      content: Text('Change ${desk.name} to ${_formatValue(status.name)}?'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext, false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(dialogContext, true),
+          child: const Text('Confirm'),
+        ),
+      ],
+    ),
+  );
+
+  if (confirmed != true) return;
+
+  try {
+    await repository.updateDeskStatus(branchId, desk.id, status);
+    if (!context.mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          '${desk.name} status updated to ${_formatValue(status.name)}.',
+        ),
+      ),
+    );
+  } catch (_) {
+    if (!context.mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Unable to update desk status. It may be occupied or access may be restricted.',
+        ),
+      ),
+    );
+  }
+}
+
+Future<void> _confirmRoomStatusChange(
+  BuildContext context,
+  ResourceRepository repository,
+  String branchId,
+  MeetingRoom room,
+  MeetingRoomStatus status,
+) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: const Text('Change meeting room status?'),
+      content: Text('Change ${room.name} to ${_formatValue(status.name)}?'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext, false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(dialogContext, true),
+          child: const Text('Confirm'),
+        ),
+      ],
+    ),
+  );
+
+  if (confirmed != true) return;
+
+  try {
+    await repository.updateMeetingRoomStatus(branchId, room.id, status);
+    if (!context.mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          '${room.name} status updated to ${_formatValue(status.name)}.',
+        ),
+      ),
+    );
+  } catch (_) {
+    if (!context.mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Unable to update meeting room status. It may be occupied or access may be restricted.',
+        ),
+      ),
+    );
+  }
 }
