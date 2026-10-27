@@ -71,6 +71,7 @@ class PermissionService {
       AppRoutes.profile || AppRoutes.myBookings => canViewOwnProfile(role),
       AppRoutes.desks || AppRoutes.meetingRooms => canManageResources(role),
       AppRoutes.occupancy => canViewOccupancy(role),
+      AppRoutes.walkInCheckIn => canManageOccupancy(role),
       _ => false,
     };
   }

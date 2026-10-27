@@ -327,9 +327,9 @@ class _OccupierAppState extends State<OccupierApp> {
     AppRoutes.bookings: (_) => BookingFlowScreen(),
     AppRoutes.occupancy: (_) => const WalkInCheckOutScreen(),
     AppRoutes.profile: (_) => const ProfileScreen(),
-    ...?widget.routeBuilders,
     AppRoutes.myBookings: (_) => const MyBookingsScreen(),
     AppRoutes.walkInCheckIn: (_) => const WalkInCheckInScreen(),
+    ...?widget.routeBuilders,
   };
 
   @override
