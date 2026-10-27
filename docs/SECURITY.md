@@ -40,6 +40,15 @@ Booking creation must atomically write the booking and its matching
 check availability, but cannot list the schedule collection or alter existing
 reservations.
 
+Walk-in check-in writes the active occupancy and changes the selected resource
+from `available` to `occupied` in one transaction. Only admins or branch
+managers/staff assigned to that branch can create the occupancy; resource
+status writes remain limited to `available`/`occupied` and assigned branch
+managers/staff (admins retain their existing administrative access). The rules
+check that the resource was available before the transaction, so a concurrent
+check-in is rejected. Walk-in name and contact details are stored on the
+occupancy; the flow does not create a Firebase Authentication account.
+
 Run the Firestore Emulator rules tests from the repository root:
 
 ```powershell

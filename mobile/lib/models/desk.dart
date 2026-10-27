@@ -9,6 +9,7 @@ class Desk {
     required this.type,
     required this.floor,
     required this.status,
+    this.activeOccupancyId,
     this.createdAt,
   });
 
@@ -17,6 +18,7 @@ class Desk {
   final String type;
   final String floor;
   final DeskStatus status;
+  final String? activeOccupancyId;
   final DateTime? createdAt;
 
   Map<String, dynamic> toFirestore() {
@@ -25,6 +27,7 @@ class Desk {
       'type': type,
       'floor': floor,
       'status': status.name,
+      'activeOccupancyId': activeOccupancyId,
       'createdAt': createdAt == null ? null : Timestamp.fromDate(createdAt!),
     };
   }
@@ -51,6 +54,7 @@ class Desk {
       type: data['type'] as String? ?? '',
       floor: data['floor'] as String? ?? '',
       status: status,
+      activeOccupancyId: data['activeOccupancyId'] as String?,
       createdAt: createdAtValue is Timestamp ? createdAtValue.toDate() : null,
     );
   }
