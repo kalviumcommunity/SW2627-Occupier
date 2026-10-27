@@ -384,4 +384,163 @@ void main() {
 
     expect((await firestore.collection('occupancies').get()).docs, isEmpty);
   });
+
+  test('checks out a walk-in and releases its desk atomically', () async {
+    await firestore.collection('branches').doc(branchId).set({
+      'name': 'Test Branch',
+    });
+    await firestore
+        .collection('branches')
+        .doc(branchId)
+        .collection('desks')
+        .doc('desk-1')
+        .set({'status': 'available'});
+
+    final occupancyId = await repository.createWalkInOccupancy(
+      branchId: branchId,
+      resourceId: 'desk-1',
+      resourceType: 'desk',
+      customerName: 'Alex Customer',
+      customerPhone: '555-0100',
+    );
+
+    await repository.checkOut(occupancyId);
+
+    final resource = await firestore
+        .collection('branches')
+        .doc(branchId)
+        .collection('desks')
+        .doc('desk-1')
+        .get();
+    final occupancy = await firestore
+        .collection('occupancies')
+        .doc(occupancyId)
+        .get();
+
+    expect(resource.data()?['status'], 'available');
+    expect(occupancy.data()?['status'], 'completed');
+    expect(occupancy.data()?['checkOutTime'], isA<Timestamp>());
+    expect(
+      await repository.watchActiveOccupancies(branchId: branchId).first,
+      isEmpty,
+    );
+  });
+
+  test('checks out a walk-in and releases its meeting room', () async {
+    await firestore.collection('branches').doc(branchId).set({
+      'name': 'Test Branch',
+    });
+    await firestore
+        .collection('branches')
+        .doc(branchId)
+        .collection('rooms')
+        .doc('room-1')
+        .set({'status': 'available'});
+
+    final occupancyId = await repository.createWalkInOccupancy(
+      branchId: branchId,
+      resourceId: 'room-1',
+      resourceType: 'room',
+      customerName: 'Alex Customer',
+      customerPhone: '555-0100',
+    );
+
+    await repository.checkOut(occupancyId);
+
+    final room = await firestore
+        .collection('branches')
+        .doc(branchId)
+        .collection('rooms')
+        .doc('room-1')
+        .get();
+    expect(room.data()?['status'], 'available');
+  });
+
+  test(
+    'rejects duplicate checkout without changing the released resource',
+    () async {
+      await firestore.collection('branches').doc(branchId).set({
+        'name': 'Test Branch',
+      });
+      await firestore
+          .collection('branches')
+          .doc(branchId)
+          .collection('rooms')
+          .doc('room-1')
+          .set({'status': 'available'});
+
+      final occupancyId = await repository.createWalkInOccupancy(
+        branchId: branchId,
+        resourceId: 'room-1',
+        resourceType: 'room',
+        customerName: 'Alex Customer',
+        customerPhone: '555-0100',
+      );
+      await repository.checkOut(occupancyId);
+
+      await expectLater(
+        repository.checkOut(occupancyId),
+        throwsA(isA<StateError>()),
+      );
+
+      final room = await firestore
+          .collection('branches')
+          .doc(branchId)
+          .collection('rooms')
+          .doc('room-1')
+          .get();
+      expect(room.data()?['status'], 'available');
+    },
+  );
+
+  test('rejects missing resources and unsupported resource types', () async {
+    await expectLater(
+      repository.createWalkInOccupancy(
+        branchId: branchId,
+        resourceId: 'missing',
+        resourceType: 'desk',
+        customerName: 'Alex Customer',
+        customerPhone: '555-0100',
+      ),
+      throwsA(isA<StateError>()),
+    );
+    await expectLater(
+      repository.createWalkInOccupancy(
+        branchId: branchId,
+        resourceId: 'desk-1',
+        resourceType: 'chair',
+        customerName: 'Alex Customer',
+        customerPhone: '555-0100',
+      ),
+      throwsA(isA<ArgumentError>()),
+    );
+  });
+
+  test('rejects missing or incomplete walk-in customer information', () async {
+    for (final customerName in ['', '   ']) {
+      expect(
+        () => repository.createWalkInOccupancy(
+          branchId: branchId,
+          resourceId: 'desk-1',
+          resourceType: 'desk',
+          customerName: customerName,
+          customerPhone: '555-0100',
+        ),
+        throwsArgumentError,
+      );
+    }
+
+    for (final customerPhone in ['', '  ', '12']) {
+      expect(
+        () => repository.createWalkInOccupancy(
+          branchId: branchId,
+          resourceId: 'desk-1',
+          resourceType: 'desk',
+          customerName: 'Alex Customer',
+          customerPhone: customerPhone,
+        ),
+        throwsArgumentError,
+      );
+    }
+  });
 }

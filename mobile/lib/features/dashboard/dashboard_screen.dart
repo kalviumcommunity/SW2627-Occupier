@@ -86,7 +86,7 @@ class DashboardScreen extends StatelessWidget {
             ),
           if (canManageOccupancy)
             IconButton(
-              tooltip: 'Walk-in check-out',
+              tooltip: 'Active walk-ins',
               icon: const Icon(Icons.logout),
               onPressed: () {
                 Navigator.pushNamed(context, AppRoutes.occupancy);

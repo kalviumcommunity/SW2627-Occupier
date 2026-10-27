@@ -19,6 +19,7 @@ import 'core/services/permission_service.dart';
 import 'core/services/user_repository.dart';
 import 'models/user.dart';
 import 'features/occupancy/walk_in_check_in_screen.dart';
+import 'features/occupancy/occupancy_management_screen.dart';
 import 'features/occupancy/walk_in_check_out_screen.dart';
 import 'features/admin/admin_user_management_screen.dart';
 
@@ -331,7 +332,7 @@ class _OccupierAppState extends State<OccupierApp> {
     AppRoutes.meetingRooms: (_) =>
         const PlaceholderScreen(title: 'Meeting Rooms'),
     AppRoutes.bookings: (_) => BookingFlowScreen(),
-    AppRoutes.occupancy: (_) => const WalkInCheckOutScreen(),
+    AppRoutes.occupancy: (_) => const OccupancyManagementScreen(),
     AppRoutes.profile: (_) => const ProfileScreen(),
     AppRoutes.myBookings: (_) => const MyBookingsScreen(),
     AppRoutes.walkInCheckIn: (_) => const WalkInCheckInScreen(),
