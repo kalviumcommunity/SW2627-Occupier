@@ -209,6 +209,7 @@ void main() {
             role == UserRole.admin ||
                 role == UserRole.branchManager ||
                 role == UserRole.staff,
+          AppRoutes.adminUserManagement => role == UserRole.admin,
           _ => true,
         };
         if (allowed) {
@@ -310,6 +311,12 @@ void main() {
 
     memberProfile.add(_profile('member-2', UserRole.member));
     await tester.pumpAndSettle();
+    expect(find.text('Protected Dashboard'), findsOneWidget);
+    expect(find.text('Test route ${AppRoutes.occupancy}'), findsNothing);
+    tester
+        .state<NavigatorState>(find.byType(Navigator))
+        .pushNamed<void>(AppRoutes.occupancy);
+    await tester.pumpAndSettle();
     expect(find.text('Access Denied'), findsOneWidget);
 
     await authChanges.close();
@@ -322,12 +329,12 @@ void main() {
   ) async {
     final authChanges = StreamController<String?>.broadcast();
     final adminProfile = StreamController<OccupierUser?>.broadcast();
+    final memberProfile = StreamController<OccupierUser?>.broadcast();
     await tester.pumpWidget(
       OccupierApp(
         authStateChanges: authChanges.stream,
-        profileChanges: (uid) => uid == 'admin-1'
-            ? adminProfile.stream
-            : Stream.value(_profile(uid, UserRole.member)),
+        profileChanges: (uid) =>
+            uid == 'admin-1' ? adminProfile.stream : memberProfile.stream,
         routeBuilders: _testRoutes,
       ),
     );
@@ -338,19 +345,42 @@ void main() {
     await tester.pumpAndSettle();
     tester
         .state<NavigatorState>(find.byType(Navigator))
-        .pushNamed<void>(AppRoutes.occupancy);
+        .pushNamed<void>(AppRoutes.adminUserManagement);
     await tester.pumpAndSettle();
-    expect(find.text('Test route ${AppRoutes.occupancy}'), findsOneWidget);
+    expect(
+      find.text('Test route ${AppRoutes.adminUserManagement}'),
+      findsOneWidget,
+    );
 
     authChanges.add('member-2');
     await tester.pump();
     await tester.pump();
-    expect(find.text('Test route ${AppRoutes.occupancy}'), findsNothing);
+    expect(
+      find.text('Test route ${AppRoutes.adminUserManagement}'),
+      findsNothing,
+    );
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
 
+    memberProfile.add(_profile('member-2', UserRole.member));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('Test route ${AppRoutes.adminUserManagement}'),
+      findsNothing,
+    );
+    expect(find.text('Protected Dashboard'), findsOneWidget);
+    tester
+        .state<NavigatorState>(find.byType(Navigator, skipOffstage: false))
+        .pushNamed<void>(AppRoutes.adminUserManagement);
     await tester.pumpAndSettle();
     expect(find.text('Access Denied'), findsOneWidget);
+    expect(
+      find.text('Test route ${AppRoutes.adminUserManagement}'),
+      findsNothing,
+    );
+
     await authChanges.close();
     await adminProfile.close();
+    await memberProfile.close();
   });
 
   testWidgets('profile fetch failure retries without granting access', (
@@ -494,6 +524,10 @@ final Map<String, WidgetBuilder> _testRoutes = {
       const Scaffold(body: Text('Test route ${AppRoutes.occupancy}')),
   AppRoutes.myBookings: (_) =>
       const Scaffold(body: Text('Test route ${AppRoutes.myBookings}')),
+  AppRoutes.walkInCheckIn: (_) =>
+      const Text('Test route ${AppRoutes.walkInCheckIn}'),
+  AppRoutes.adminUserManagement: (_) =>
+      const Text('Test route ${AppRoutes.adminUserManagement}'),
   AppRoutes.register: (_) => Scaffold(
     body: Column(
       children: [
@@ -509,8 +543,6 @@ final Map<String, WidgetBuilder> _testRoutes = {
   ),
   AppRoutes.forgotPassword: (_) =>
       const Scaffold(body: Text('Test Password Reset')),
-  AppRoutes.walkInCheckIn: (_) =>
-      const Text('Test route ${AppRoutes.walkInCheckIn}'),
 };
 
 const _protectedRouteNames = [
@@ -522,4 +554,5 @@ const _protectedRouteNames = [
   AppRoutes.occupancy,
   AppRoutes.profile,
   AppRoutes.walkInCheckIn,
+  AppRoutes.adminUserManagement,
 ];
