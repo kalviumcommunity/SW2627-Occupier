@@ -162,8 +162,21 @@ async function writeBooking(db, bookingId = 'booking-1', overrides = {}) {
   await batch.commit();
 }
 
-async function createWalkInAtomically(db, occupancyId, branchId = 'branch-1') {
-  const resourceRef = doc(db, 'branches', branchId, 'desks', 'desk-1');
+async function createWalkInAtomically(
+  db,
+  occupancyId,
+  branchId = 'branch-1',
+  resourceType = 'desk',
+) {
+  const resourceCollection = resourceType === 'room' ? 'rooms' : 'desks';
+  const resourceId = resourceType === 'room' ? 'room-1' : 'desk-1';
+  const resourceRef = doc(
+    db,
+    'branches',
+    branchId,
+    resourceCollection,
+    resourceId,
+  );
   const occupancyRef = doc(db, 'occupancies', occupancyId);
 
   return runTransaction(db, async (transaction) => {
@@ -176,8 +189,8 @@ async function createWalkInAtomically(db, occupancyId, branchId = 'branch-1') {
     transaction.set(occupancyRef, {
       occupancyId,
       branchId,
-      resourceId: 'desk-1',
-      resourceType: 'desk',
+      resourceId,
+      resourceType,
       userId: `walk-in-${occupancyId}`,
       bookingId: null,
       status: 'active',
@@ -188,6 +201,37 @@ async function createWalkInAtomically(db, occupancyId, branchId = 'branch-1') {
       customerName: 'Walk-in Customer',
       customerPhone: '+1 555 0100',
     });
+  });
+}
+
+async function checkOutOccupancyAtomically(db, occupancyId) {
+  const occupancyRef = doc(db, 'occupancies', occupancyId);
+
+  return runTransaction(db, async (transaction) => {
+    const occupancySnapshot = await transaction.get(occupancyRef);
+    if (!occupancySnapshot.exists() || occupancySnapshot.data().status !== 'active') {
+      throw new Error('Occupancy is not active.');
+    }
+
+    const occupancy = occupancySnapshot.data();
+    const resourceCollection = occupancy.resourceType === 'room' ? 'rooms' : 'desks';
+    const resourceRef = doc(
+      db,
+      'branches',
+      occupancy.branchId,
+      resourceCollection,
+      occupancy.resourceId,
+    );
+    const resourceSnapshot = await transaction.get(resourceRef);
+    if (!resourceSnapshot.exists() || resourceSnapshot.data().status !== 'occupied') {
+      throw new Error('Resource is not occupied.');
+    }
+
+    transaction.update(occupancyRef, {
+      status: 'completed',
+      checkOutTime: serverTimestamp(),
+    });
+    transaction.update(resourceRef, { status: 'available' });
   });
 }
 
@@ -802,6 +846,98 @@ test('assigned staff can atomically check in a walk-in and occupy a resource', a
   assert.equal(resource.data().status, 'occupied');
   assert.equal(occupancy.data().status, 'active');
   assert.equal(occupancy.data().customerName, 'Walk-in Customer');
+});
+
+test('assigned staff can atomically check out a walk-in and release its resource', async () => {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, 'users', 'staff-1'), {
+      uid: 'staff-1',
+      name: 'Staff',
+      email: 'staff@example.com',
+      role: 'staff',
+    });
+    await updateDoc(doc(db, 'branches', 'branch-1', 'desks', 'desk-1'), {
+      status: 'occupied',
+    });
+    await setDoc(
+      doc(db, 'occupancies', 'walk-in-checkout-1'),
+      validOccupancy({
+        occupancyId: 'walk-in-checkout-1',
+        userId: 'walk-in-walk-in-checkout-1',
+        bookingId: null,
+        status: 'active',
+        source: 'walkIn',
+        checkInTime: serverTimestamp(),
+        customerName: 'Walk-in Customer',
+        customerPhone: '+1 555 0100',
+      }),
+    );
+  });
+
+  const db = testEnv.authenticatedContext('staff-1').firestore();
+  await assertSucceeds(checkOutOccupancyAtomically(db, 'walk-in-checkout-1'));
+
+  const occupancy = await getDoc(doc(db, 'occupancies', 'walk-in-checkout-1'));
+  const resource = await getDoc(
+    doc(db, 'branches', 'branch-1', 'desks', 'desk-1'),
+  );
+  assert.equal(occupancy.data().status, 'completed');
+  assert.ok(occupancy.data().checkOutTime);
+  assert.equal(resource.data().status, 'available');
+});
+
+test('branch managers can atomically check in walk-ins in their assigned branch', async () => {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, 'users', 'manager-1'), {
+      uid: 'manager-1',
+      name: 'Manager',
+      email: 'manager@example.com',
+      role: 'branchManager',
+    });
+    await setDoc(doc(db, 'branches', 'branch-1', 'rooms', 'room-1'), {
+      name: 'Meeting room',
+      capacity: 6,
+      floor: '1',
+      amenities: [],
+      status: 'available',
+    });
+  });
+
+  const db = testEnv.authenticatedContext('manager-1').firestore();
+  await assertSucceeds(createWalkInAtomically(db, 'manager-walk-in'));
+  await assertSucceeds(
+    createWalkInAtomically(db, 'manager-room-walk-in', 'branch-1', 'room'),
+  );
+});
+
+test('concurrent walk-in check-ins cannot occupy the same resource twice', async () => {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), 'users', 'staff-1'), {
+      uid: 'staff-1',
+      name: 'Staff',
+      email: 'staff@example.com',
+      role: 'staff',
+    });
+  });
+
+  const db = testEnv.authenticatedContext('staff-1').firestore();
+  const results = await Promise.allSettled([
+    createWalkInAtomically(db, 'concurrent-walk-in-1'),
+    createWalkInAtomically(db, 'concurrent-walk-in-2'),
+  ]);
+  assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
+  assert.equal(results.filter((result) => result.status === 'rejected').length, 1);
+
+  const occupancies = await getDocs(
+    query(
+      collection(db, 'occupancies'),
+      where('branchId', '==', 'branch-1'),
+      where('status', '==', 'active'),
+    ),
+  );
+  assert.equal(occupancies.size, 1);
 });
 
 test('walk-in transaction rejects members and staff assigned to another branch', async () => {

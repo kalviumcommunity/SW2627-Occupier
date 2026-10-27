@@ -84,6 +84,206 @@ void main() {
     expect(find.text('Walk-in checked in successfully.'), findsOneWidget);
     expect(delayedRepository.calls, 1);
   });
+
+  testWidgets('requires complete customer details before check-in', (
+    tester,
+  ) async {
+    final firestore = await _seedFirestore(role: 'staff');
+    final repository = _DelayedOccupancyRepository();
+    final screen = WalkInCheckInScreen(
+      currentUserId: () => 'staff-1',
+      resourceRepository: ResourceRepository(firestore: firestore),
+      occupancyRepository: repository,
+      userRepository: UserRepository(
+        firestore: firestore,
+        currentUserId: () => 'staff-1',
+      ),
+    );
+
+    await tester.pumpWidget(MaterialApp(home: screen));
+    await tester.pumpAndSettle();
+    await _selectBranchAndDesk(tester);
+    await tester.ensureVisible(find.byKey(const ValueKey('walk-in-submit')));
+    await tester.tap(find.byKey(const ValueKey('walk-in-submit')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Enter the customer name.'), findsOneWidget);
+    expect(
+      find.text('Enter a contact number (3-32 characters).'),
+      findsOneWidget,
+    );
+    expect(repository.calls, 0);
+  });
+
+  testWidgets('filters out unavailable resources and disables check-in', (
+    tester,
+  ) async {
+    final firestore = await _seedFirestore(role: 'staff');
+    await firestore
+        .collection('branches')
+        .doc('branch-1')
+        .collection('desks')
+        .doc('desk-1')
+        .update({'status': 'occupied'});
+    final screen = WalkInCheckInScreen(
+      currentUserId: () => 'staff-1',
+      resourceRepository: ResourceRepository(firestore: firestore),
+      occupancyRepository: OccupancyRepository(firestore: firestore),
+      userRepository: UserRepository(
+        firestore: firestore,
+        currentUserId: () => 'staff-1',
+      ),
+    );
+
+    await tester.pumpWidget(MaterialApp(home: screen));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('walk-in-branch')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Test Branch').last);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('No desks or meeting rooms are available.'),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<FilledButton>(find.byKey(const ValueKey('walk-in-submit')))
+          .onPressed,
+      isNull,
+    );
+  });
+
+  testWidgets('shows only branches assigned to the staff member', (
+    tester,
+  ) async {
+    final firestore = await _seedFirestore(role: 'staff');
+    await firestore.collection('branches').doc('branch-2').set({
+      'name': 'Other Branch',
+      'status': 'active',
+      'managerUid': null,
+      'staffUids': <String>[],
+    });
+    final screen = WalkInCheckInScreen(
+      currentUserId: () => 'staff-1',
+      resourceRepository: ResourceRepository(firestore: firestore),
+      occupancyRepository: OccupancyRepository(firestore: firestore),
+      userRepository: UserRepository(
+        firestore: firestore,
+        currentUserId: () => 'staff-1',
+      ),
+    );
+
+    await tester.pumpWidget(MaterialApp(home: screen));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('walk-in-branch')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Test Branch'), findsOneWidget);
+    expect(find.text('Other Branch'), findsNothing);
+  });
+
+  testWidgets('checks in a customer to an available meeting room', (
+    tester,
+  ) async {
+    final firestore = await _seedFirestore(role: 'staff');
+    await firestore
+        .collection('branches')
+        .doc('branch-1')
+        .collection('rooms')
+        .doc('room-1')
+        .set({
+          'name': 'Room 1',
+          'capacity': 6,
+          'floor': '1',
+          'amenities': <String>[],
+          'status': 'available',
+        });
+    final screen = WalkInCheckInScreen(
+      currentUserId: () => 'staff-1',
+      resourceRepository: ResourceRepository(firestore: firestore),
+      occupancyRepository: OccupancyRepository(firestore: firestore),
+      userRepository: UserRepository(
+        firestore: firestore,
+        currentUserId: () => 'staff-1',
+      ),
+    );
+
+    await tester.pumpWidget(MaterialApp(home: screen));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('walk-in-branch')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Test Branch').last);
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('walk-in-resource-room:room-1')),
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('walk-in-customer-name')),
+      'Alex Customer',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('walk-in-customer-phone')),
+      '555-0100',
+    );
+    await tester.ensureVisible(find.byKey(const ValueKey('walk-in-submit')));
+    await tester.tap(find.byKey(const ValueKey('walk-in-submit')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Walk-in checked in successfully.'), findsOneWidget);
+    expect(
+      (await firestore
+              .collection('branches')
+              .doc('branch-1')
+              .collection('rooms')
+              .doc('room-1')
+              .get())
+          .data()?['status'],
+      'occupied',
+    );
+  });
+
+  testWidgets('shows an explicit check-in failure', (tester) async {
+    final firestore = await _seedFirestore(role: 'staff');
+    final screen = WalkInCheckInScreen(
+      currentUserId: () => 'staff-1',
+      resourceRepository: ResourceRepository(firestore: firestore),
+      occupancyRepository: _FailingOccupancyRepository(),
+      userRepository: UserRepository(
+        firestore: firestore,
+        currentUserId: () => 'staff-1',
+      ),
+    );
+
+    await tester.pumpWidget(MaterialApp(home: screen));
+    await tester.pumpAndSettle();
+    await _selectBranchAndDesk(tester);
+    await tester.enterText(
+      find.byKey(const ValueKey('walk-in-customer-name')),
+      'Alex Customer',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('walk-in-customer-phone')),
+      '555-0100',
+    );
+    await tester.ensureVisible(find.byKey(const ValueKey('walk-in-submit')));
+    await tester.tap(find.byKey(const ValueKey('walk-in-submit')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('This resource is not available for check-in.'),
+      findsOneWidget,
+    );
+  });
+}
+
+Future<void> _selectBranchAndDesk(WidgetTester tester) async {
+  await tester.tap(find.byKey(const ValueKey('walk-in-branch')));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('Test Branch').last);
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(const ValueKey('walk-in-resource-desk:desk-1')));
+  await tester.pumpAndSettle();
 }
 
 Future<FakeFirebaseFirestore> _seedFirestore({required String role}) async {
@@ -137,5 +337,22 @@ class _DelayedOccupancyRepository extends OccupancyRepository {
   }) {
     calls++;
     return completion.future;
+  }
+}
+
+class _FailingOccupancyRepository extends OccupancyRepository {
+  _FailingOccupancyRepository() : super(firestore: FakeFirebaseFirestore());
+
+  @override
+  Future<String> createWalkInOccupancy({
+    required String branchId,
+    required String resourceId,
+    required String resourceType,
+    required String customerName,
+    required String customerPhone,
+  }) {
+    return Future<String>.error(
+      StateError('This resource is not available for check-in.'),
+    );
   }
 }

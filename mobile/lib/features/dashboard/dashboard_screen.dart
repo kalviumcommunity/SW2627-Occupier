@@ -78,6 +78,14 @@ class DashboardScreen extends StatelessWidget {
                 Navigator.pushNamed(context, AppRoutes.walkInCheckIn);
               },
             ),
+          if (canManageOccupancy)
+            IconButton(
+              tooltip: 'Active walk-ins',
+              icon: const Icon(Icons.logout),
+              onPressed: () {
+                Navigator.pushNamed(context, AppRoutes.occupancy);
+              },
+            ),
           IconButton(
             tooltip: 'My Bookings',
             icon: const Icon(Icons.event_note),
