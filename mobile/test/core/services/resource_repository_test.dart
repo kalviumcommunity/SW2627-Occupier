@@ -145,6 +145,109 @@ void main() {
       expect(desks, hasLength(1));
       expect(desks.first.name, 'Desk 5');
     });
+
+    test('updates desk status without changing other fields', () async {
+      await createTestBranch();
+
+      final deskId = await repository.createDesk(
+        branchId,
+        const Desk(
+          name: 'Desk 12',
+          type: 'hot_desk',
+          floor: '1',
+          status: DeskStatus.available,
+        ),
+      );
+
+      await repository.updateDeskStatus(
+        branchId,
+        deskId,
+        DeskStatus.maintenance,
+      );
+
+      var desk = await repository.getDesk(branchId, deskId);
+
+      expect(desk!.status, DeskStatus.maintenance);
+      expect(desk.name, 'Desk 12');
+
+      await repository.updateDeskStatus(branchId, deskId, DeskStatus.inactive);
+
+      desk = await repository.getDesk(branchId, deskId);
+
+      expect(desk!.status, DeskStatus.inactive);
+
+      await repository.updateDeskStatus(branchId, deskId, DeskStatus.available);
+
+      desk = await repository.getDesk(branchId, deskId);
+
+      expect(desk!.status, DeskStatus.available);
+    });
+
+    test('management cannot mark a desk occupied', () async {
+      await createTestBranch();
+
+      final deskId = await repository.createDesk(
+        branchId,
+        const Desk(
+          name: 'Desk 13',
+          type: 'hot_desk',
+          floor: '1',
+          status: DeskStatus.available,
+        ),
+      );
+
+      await expectLater(
+        repository.updateDeskStatus(branchId, deskId, DeskStatus.occupied),
+        throwsArgumentError,
+      );
+
+      final desk = await repository.getDesk(branchId, deskId);
+      expect(desk!.status, DeskStatus.available);
+    });
+
+    test('cannot change status of a desk with active occupancy', () async {
+      await createTestBranch();
+
+      final deskId = await repository.createDesk(
+        branchId,
+        const Desk(
+          name: 'Desk 14',
+          type: 'dedicated',
+          floor: '2',
+          status: DeskStatus.occupied,
+          activeOccupancyId: 'occupancy-test',
+        ),
+      );
+
+      await expectLater(
+        repository.updateDeskStatus(branchId, deskId, DeskStatus.maintenance),
+        throwsStateError,
+      );
+
+      final desk = await repository.getDesk(branchId, deskId);
+      expect(desk!.status, DeskStatus.occupied);
+      expect(desk.activeOccupancyId, 'occupancy-test');
+    });
+
+    test('cannot change status when occupancy ID remains active', () async {
+      await createTestBranch();
+
+      final deskId = await repository.createDesk(
+        branchId,
+        const Desk(
+          name: 'Desk 15',
+          type: 'dedicated',
+          floor: '2',
+          status: DeskStatus.available,
+          activeOccupancyId: 'occupancy-test',
+        ),
+      );
+
+      await expectLater(
+        repository.updateDeskStatus(branchId, deskId, DeskStatus.inactive),
+        throwsStateError,
+      );
+    });
   });
 
   group('Meeting room repository', () {
@@ -199,6 +302,107 @@ void main() {
 
       expect(rooms, hasLength(1));
       expect(rooms.first.name, 'Meeting Room B');
+    });
+
+    test('updates meeting room status without changing details', () async {
+      await createTestBranch();
+
+      final roomId = await repository.createMeetingRoom(
+        branchId,
+        const MeetingRoom(
+          name: 'Meeting Room C',
+          capacity: 8,
+          floor: '2',
+          amenities: ['Projector'],
+          status: MeetingRoomStatus.available,
+        ),
+      );
+
+      await repository.updateMeetingRoomStatus(
+        branchId,
+        roomId,
+        MeetingRoomStatus.maintenance,
+      );
+
+      var room = await repository.getMeetingRoom(branchId, roomId);
+
+      expect(room!.status, MeetingRoomStatus.maintenance);
+      expect(room.name, 'Meeting Room C');
+      expect(room.amenities, ['Projector']);
+
+      await repository.updateMeetingRoomStatus(
+        branchId,
+        roomId,
+        MeetingRoomStatus.inactive,
+      );
+
+      room = await repository.getMeetingRoom(branchId, roomId);
+      expect(room!.status, MeetingRoomStatus.inactive);
+
+      await repository.updateMeetingRoomStatus(
+        branchId,
+        roomId,
+        MeetingRoomStatus.available,
+      );
+
+      room = await repository.getMeetingRoom(branchId, roomId);
+      expect(room!.status, MeetingRoomStatus.available);
+    });
+
+    test('management cannot mark a meeting room occupied', () async {
+      await createTestBranch();
+
+      final roomId = await repository.createMeetingRoom(
+        branchId,
+        const MeetingRoom(
+          name: 'Meeting Room D',
+          capacity: 6,
+          floor: '1',
+          amenities: [],
+          status: MeetingRoomStatus.available,
+        ),
+      );
+
+      await expectLater(
+        repository.updateMeetingRoomStatus(
+          branchId,
+          roomId,
+          MeetingRoomStatus.occupied,
+        ),
+        throwsArgumentError,
+      );
+
+      final room = await repository.getMeetingRoom(branchId, roomId);
+      expect(room!.status, MeetingRoomStatus.available);
+    });
+
+    test('cannot change status of a room with active occupancy', () async {
+      await createTestBranch();
+
+      final roomId = await repository.createMeetingRoom(
+        branchId,
+        const MeetingRoom(
+          name: 'Meeting Room E',
+          capacity: 10,
+          floor: '3',
+          amenities: [],
+          status: MeetingRoomStatus.occupied,
+          activeOccupancyId: 'occupancy-room-test',
+        ),
+      );
+
+      await expectLater(
+        repository.updateMeetingRoomStatus(
+          branchId,
+          roomId,
+          MeetingRoomStatus.inactive,
+        ),
+        throwsStateError,
+      );
+
+      final room = await repository.getMeetingRoom(branchId, roomId);
+      expect(room!.status, MeetingRoomStatus.occupied);
+      expect(room.activeOccupancyId, 'occupancy-room-test');
     });
   });
 }
