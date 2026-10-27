@@ -30,6 +30,14 @@ class UserRepository {
     return OccupierUser.fromFirestore(document);
   }
 
+  Stream<OccupierUser?> watchUser(String uid) {
+    _requireOwnProfile(uid);
+    return _users.doc(uid).snapshots().map((document) {
+      if (!document.exists) return null;
+      return OccupierUser.fromFirestore(document);
+    });
+  }
+
   Future<void> saveUser(OccupierUser user) async {
     _requireOwnProfile(user.uid);
     final document = _users.doc(user.uid);

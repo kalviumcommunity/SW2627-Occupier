@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mobile/core/constants/app_routes.dart';
 import 'package:mobile/core/services/permission_service.dart';
 import 'package:mobile/models/user.dart';
 
@@ -102,6 +103,31 @@ void main() {
       expect(permissions.canAssignRoles(UserRole.branchManager), isFalse);
       expect(permissions.canAssignRoles(UserRole.staff), isFalse);
       expect(permissions.canAssignRoles(UserRole.member), isFalse);
+    });
+
+    test('maps protected routes to existing role policies', () {
+      for (final role in UserRole.values) {
+        expect(permissions.canAccessRoute(AppRoutes.dashboard, role), isTrue);
+        expect(permissions.canAccessRoute(AppRoutes.branches, role), isTrue);
+        expect(permissions.canAccessRoute(AppRoutes.bookings, role), isTrue);
+        expect(permissions.canAccessRoute(AppRoutes.profile, role), isTrue);
+        expect(permissions.canAccessRoute(AppRoutes.myBookings, role), isTrue);
+        expect(
+          permissions.canAccessRoute(AppRoutes.occupancy, role),
+          permissions.canViewOccupancy(role),
+        );
+        expect(
+          permissions.canAccessRoute(AppRoutes.desks, role),
+          permissions.canManageResources(role),
+        );
+        expect(
+          permissions.canAccessRoute(AppRoutes.meetingRooms, role),
+          permissions.canManageResources(role),
+        );
+      }
+
+      expect(permissions.canAccessRoute(AppRoutes.dashboard, null), isFalse);
+      expect(permissions.canAccessRoute('/unknown', UserRole.admin), isFalse);
     });
   });
 }
