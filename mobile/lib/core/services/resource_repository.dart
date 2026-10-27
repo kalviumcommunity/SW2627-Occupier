@@ -41,6 +41,33 @@ class ResourceRepository {
     return document.id;
   }
 
+  Future<void> updateBranch(Branch branch) async {
+    if (branch.id.trim().isEmpty) {
+      throw ArgumentError.value(
+        branch.id,
+        'branch.id',
+        'A branch ID is required to update a branch.',
+      );
+    }
+
+    // Preserve the original creation timestamp.
+    final data = branch.toFirestore()..remove('createdAt');
+
+    await _branches.doc(branch.id).update(data);
+  }
+
+  Future<void> updateBranchStatus(String branchId, BranchStatus status) async {
+    if (branchId.trim().isEmpty) {
+      throw ArgumentError.value(
+        branchId,
+        'branchId',
+        'A branch ID is required to update branch status.',
+      );
+    }
+
+    await _branches.doc(branchId).update({'status': status.name});
+  }
+
   // ---------------------------
   // Desks
   // ---------------------------
