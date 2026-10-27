@@ -205,6 +205,10 @@ void main() {
           AppRoutes.desks || AppRoutes.meetingRooms =>
             role == UserRole.admin || role == UserRole.branchManager,
           AppRoutes.occupancy => role != UserRole.member,
+          AppRoutes.walkInCheckIn =>
+            role == UserRole.admin ||
+                role == UserRole.branchManager ||
+                role == UserRole.staff,
           _ => true,
         };
         if (allowed) {
@@ -505,6 +509,8 @@ final Map<String, WidgetBuilder> _testRoutes = {
   ),
   AppRoutes.forgotPassword: (_) =>
       const Scaffold(body: Text('Test Password Reset')),
+  AppRoutes.walkInCheckIn: (_) =>
+      const Text('Test route ${AppRoutes.walkInCheckIn}'),
 };
 
 const _protectedRouteNames = [
