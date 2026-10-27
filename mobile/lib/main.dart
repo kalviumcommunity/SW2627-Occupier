@@ -20,6 +20,7 @@ import 'core/services/user_repository.dart';
 import 'models/user.dart';
 import 'features/occupancy/walk_in_check_in_screen.dart';
 import 'features/occupancy/walk_in_check_out_screen.dart';
+import 'features/admin/admin_user_management_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -46,7 +47,7 @@ class OccupierApp extends StatefulWidget {
 }
 
 class _OccupierAppState extends State<OccupierApp> {
-  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
+  GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   static const PermissionService _permissions = PermissionService();
   late final _AppNavigatorObserver _navigatorObserver = _AppNavigatorObserver(
     (name) => _currentRouteName = name,
@@ -78,6 +79,7 @@ class _OccupierAppState extends State<OccupierApp> {
     AppRoutes.profile,
     AppRoutes.myBookings,
     AppRoutes.walkInCheckIn,
+    AppRoutes.adminUserManagement,
   };
 
   @override
@@ -116,6 +118,10 @@ class _OccupierAppState extends State<OccupierApp> {
     if (_authResolved && uid == _authenticatedUid) return;
 
     final wasAuthenticated = _authenticatedUid != null;
+    if (uid != _authenticatedUid) {
+      _navigatorKey = GlobalKey<NavigatorState>();
+      _currentRouteName = null;
+    }
     _profileGeneration++;
     _profileSubscription?.cancel();
     _profileSubscription = null;
@@ -329,6 +335,7 @@ class _OccupierAppState extends State<OccupierApp> {
     AppRoutes.profile: (_) => const ProfileScreen(),
     AppRoutes.myBookings: (_) => const MyBookingsScreen(),
     AppRoutes.walkInCheckIn: (_) => const WalkInCheckInScreen(),
+    AppRoutes.adminUserManagement: (_) => const AdminUserManagementScreen(),
     ...?widget.routeBuilders,
   };
 

@@ -25,8 +25,8 @@ class DashboardScreen extends StatelessWidget {
       );
     }
 
-    return FutureBuilder<OccupierUser?>(
-      future: UserRepository().getUser(uid),
+    return StreamBuilder<OccupierUser?>(
+      stream: UserRepository().watchUser(uid),
       builder: (context, profileSnapshot) {
         if (profileSnapshot.hasError) {
           return const Scaffold(
@@ -54,6 +54,7 @@ class DashboardScreen extends StatelessWidget {
           currentUserRole: profile.role,
           canReadAllOccupancies: permissions.isAdministrator(profile.role),
           canManageOccupancy: permissions.canManageOccupancy(profile.role),
+          canManageUsers: permissions.canManageUsers(profile.role),
         );
       },
     );
@@ -65,6 +66,7 @@ class DashboardScreen extends StatelessWidget {
     required UserRole currentUserRole,
     required bool canReadAllOccupancies,
     required bool canManageOccupancy,
+    required bool canManageUsers,
   }) {
     final repository = ResourceRepository();
     final occupancyService = OccupancyService();
@@ -88,6 +90,14 @@ class DashboardScreen extends StatelessWidget {
               icon: const Icon(Icons.logout),
               onPressed: () {
                 Navigator.pushNamed(context, AppRoutes.occupancy);
+              },
+            ),
+          if (canManageUsers)
+            IconButton(
+              tooltip: 'User management',
+              icon: const Icon(Icons.manage_accounts_outlined),
+              onPressed: () {
+                Navigator.pushNamed(context, AppRoutes.adminUserManagement);
               },
             ),
           IconButton(

@@ -6,7 +6,10 @@ Firebase Authentication supplies each user's UID. The matching
 `users/{uid}` Firestore document supplies the role (`admin`, `branchManager`,
 `staff`, or `member`). Firestore rules prevent users from changing their own
 role; only an existing administrator can change role documents. Do not add
-client code that writes authorization roles.
+role writes to the self-profile repository. The administrator user-management
+screen uses a separate repository that checks the signed-in user's Firestore
+profile before role updates; Firestore rules remain the authoritative access
+control.
 
 The first administrator must be provisioned by a trusted operator in the
 Firebase Console:
@@ -19,10 +22,15 @@ Firebase Console:
 4. Verify the selected document ID and `uid` field match the intended
    Firebase Authentication UID. Do not make this change from the client app.
 
-Additional admin and staff role changes must be performed by an authenticated
-administrator through a future trusted admin workflow or by a trusted operator
-in the Console. No Firebase service-account credentials belong in the Flutter
-app.
+Additional role changes can be performed by an authenticated administrator in
+the app's user-management screen or by a trusted operator in the Console. The
+app blocks an administrator from changing their own role and performs a
+best-effort check before demoting another administrator. This check is not
+atomic: the current Firestore rules do not guarantee that the last
+administrator cannot be removed by concurrent or direct writes. A reliable
+guarantee requires a trusted backend role-management operation and corresponding
+server-enforced rules. No Firebase service-account credentials belong in the
+Flutter app.
 
 ## Rules and tests
 
