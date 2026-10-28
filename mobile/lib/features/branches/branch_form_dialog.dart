@@ -113,6 +113,26 @@ class _BranchFormDialogState extends State<BranchFormDialog> {
     return null;
   }
 
+  String? _contactNumberValidator(String? value) {
+    final text = value?.trim() ?? '';
+
+    if (text.isEmpty) {
+      return 'Contact number is required.';
+    }
+
+    if (!RegExp(r'^\+?[0-9\s().-]+$').hasMatch(text)) {
+      return 'Enter a valid contact number.';
+    }
+
+    final digitCount = text.replaceAll(RegExp(r'\D'), '').length;
+
+    if (digitCount < 7 || digitCount > 15) {
+      return 'Use 7–15 digits for the contact number.';
+    }
+
+    return null;
+  }
+
   String? _capacityValidator(String? value, String label) {
     final text = value?.trim() ?? '';
     final capacity = int.tryParse(text);
@@ -229,7 +249,7 @@ class _BranchFormDialogState extends State<BranchFormDialog> {
                     labelText: 'Contact number',
                   ),
                   keyboardType: TextInputType.phone,
-                  validator: (value) => _requiredText(value, 'Contact number'),
+                  validator: _contactNumberValidator,
                 ),
                 TextFormField(
                   key: const ValueKey('branch-desk-capacity-field'),

@@ -126,4 +126,24 @@ void main() {
     expect(savedBranch!.status, BranchStatus.inactive);
     expect(find.text('Branch deactivated successfully.'), findsOneWidget);
   });
+
+  testWidgets('branch form rejects invalid contact numbers', (tester) async {
+    await seedProfile(UserRole.admin);
+    await pumpBranchesScreen(tester);
+
+    await tester.tap(find.byTooltip('Create branch'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('branch-contact-field')), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const ValueKey('branch-contact-field')),
+      'abc123',
+    );
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Create branch'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Enter a valid contact number.'), findsOneWidget);
+  });
 }
