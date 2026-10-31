@@ -37,6 +37,8 @@ class PermissionService {
     return role != null && role != UserRole.member;
   }
 
+  bool canViewNetworkOccupancy(UserRole? role) => isAdministrator(role);
+
   bool canManageOccupancy(UserRole? role) {
     return role == UserRole.admin ||
         role == UserRole.branchManager ||

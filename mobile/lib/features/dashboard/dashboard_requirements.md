@@ -83,8 +83,10 @@ Therefore:
 
 - Booked does not automatically mean occupied.
 - Walk-ins can create occupancy without a booking.
-- An active occupancy contributes to current occupancy.
-- A completed occupancy does not contribute to current occupancy.
+- An active occupancy marks its resource as occupied and contributes to current
+  occupancy through that resource status.
+- A completed occupancy stops contributing when its resource status returns to
+  available.
 
 
 ## Calculations
@@ -113,11 +115,28 @@ Individual branch percentages must not be averaged.
 
 ## Data Sources
 
-The dashboard will eventually consume:
+The live occupancy dashboard consumes:
 
 - Branch data
-- Resource data
-- Booking data
-- Occupancy/check-in data
+- Desk and meeting-room data
+- Active occupancy/check-in data
 
-The occupancy data is the source of truth for current physical occupancy.
+Booking counts remain separate from the live occupancy view.
+
+## Live Dashboard Access and Calculations
+
+- Administrators see the network totals and occupancy for all active branches.
+- Branch managers and staff see only active branches assigned to their profile.
+- Members do not see occupancy statistics.
+- Available and occupied desks each contribute one capacity unit. Available
+  and occupied meeting rooms contribute their seat capacity. Maintenance and
+  inactive resources are excluded from capacity.
+- Total resources includes all desk and room records. Resources in maintenance
+  or inactive status are counted separately from available and occupied ones.
+- Check-in and check-out update resource status and the occupancy record
+  atomically. Capacity utilization is calculated from resource status, while
+  active check-ins are displayed separately and are never added to resource
+  counts.
+- Network occupancy is calculated from summed occupied capacity divided by
+  summed total capacity, not by averaging branch percentages.
+- Empty and zero-capacity branches report zero occupancy.

@@ -639,6 +639,55 @@ test('ordinary users can query only their own occupancy records', async () => {
   );
 });
 
+test('network occupancy reads are admin-wide and staff-scoped', async () => {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    for (const [uid, role] of [
+      ['admin-1', 'admin'],
+      ['manager-1', 'branchManager'],
+      ['staff-1', 'staff'],
+    ]) {
+      await setDoc(doc(db, 'users', uid), {
+        uid,
+        name: role,
+        email: `${uid}@example.com`,
+        role,
+      });
+    }
+    await setDoc(
+      doc(db, 'branches', 'branch-2'),
+      validBranch({ managerUid: 'manager-2' }),
+    );
+  });
+  await seedActiveOccupancy('assigned-occupancy');
+  await seedActiveOccupancy('other-branch-occupancy', {
+    branchId: 'branch-2',
+    resourceId: 'desk-2',
+  });
+
+  const activeOccupancies = (db, branchId) => {
+    const constraints = [where('status', '==', 'active')];
+    if (branchId != null) constraints.push(where('branchId', '==', branchId));
+    return query(collection(db, 'occupancies'), ...constraints);
+  };
+
+  const adminDb = testEnv.authenticatedContext('admin-1').firestore();
+  const networkOccupancies = await assertSucceeds(
+    getDocs(activeOccupancies(adminDb)),
+  );
+  assert.equal(networkOccupancies.size, 2);
+
+  for (const uid of ['manager-1', 'staff-1']) {
+    const db = testEnv.authenticatedContext(uid).firestore();
+    const assignedOccupancies = await assertSucceeds(
+      getDocs(activeOccupancies(db, 'branch-1')),
+    );
+    assert.equal(assignedOccupancies.size, 1);
+    await assertFails(getDocs(activeOccupancies(db, 'branch-2')));
+    await assertFails(getDocs(activeOccupancies(db)));
+  }
+});
+
 test('denies users from creating or changing unauthorized bookings', async () => {
   const db = testEnv.authenticatedContext('member-1').firestore();
 
