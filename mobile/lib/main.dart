@@ -20,7 +20,6 @@ import 'core/services/user_repository.dart';
 import 'models/user.dart';
 import 'features/occupancy/walk_in_check_in_screen.dart';
 import 'features/occupancy/occupancy_management_screen.dart';
-import 'features/occupancy/walk_in_check_out_screen.dart';
 import 'features/admin/admin_user_management_screen.dart';
 
 Future<void> main() async {
