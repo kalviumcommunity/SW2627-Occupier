@@ -72,6 +72,17 @@ void main() {
       expect(permissions.canViewOccupancy(UserRole.member), isFalse);
     });
 
+    test('only administrators can view network-wide occupancy', () {
+      expect(permissions.canViewNetworkOccupancy(UserRole.admin), isTrue);
+      expect(
+        permissions.canViewNetworkOccupancy(UserRole.branchManager),
+        isFalse,
+      );
+      expect(permissions.canViewNetworkOccupancy(UserRole.staff), isFalse);
+      expect(permissions.canViewNetworkOccupancy(UserRole.member), isFalse);
+      expect(permissions.canViewNetworkOccupancy(null), isFalse);
+    });
+
     test('admin, branch manager and staff can manage occupancy', () {
       expect(permissions.canManageOccupancy(UserRole.admin), isTrue);
       expect(permissions.canManageOccupancy(UserRole.branchManager), isTrue);

@@ -198,6 +198,16 @@ Future<void> _seedWalkIn(
     'customerName': branchId == 'branch-1' ? 'Alex Customer' : 'Other Customer',
     'customerPhone': '555-0100',
   });
+  await firestore
+      .collection('branches')
+      .doc(branchId)
+      .collection('desks')
+      .doc('desk-1')
+      .set({
+        'name': 'Desk 1',
+        'status': 'occupied',
+        'activeOccupancyId': occupancyId,
+      });
 }
 
 class _DelayedCheckoutRepository extends OccupancyRepository {
