@@ -148,13 +148,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
               Navigator.pushNamed(context, AppRoutes.myBookings);
             },
           ),
-          IconButton(
-            tooltip: 'My Profile',
-            icon: const Icon(Icons.account_circle_outlined),
-            onPressed: () {
-              Navigator.pushNamed(context, AppRoutes.profile);
-            },
-          ),
         ],
       ),
       body: !canSeeOccupancy
