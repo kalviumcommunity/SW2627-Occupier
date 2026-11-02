@@ -83,6 +83,17 @@ void main() {
       expect(permissions.canViewNetworkOccupancy(null), isFalse);
     });
 
+    test('staff analytics are available to non-members only', () {
+      expect(permissions.canViewOccupancyAnalytics(UserRole.admin), isTrue);
+      expect(
+        permissions.canViewOccupancyAnalytics(UserRole.branchManager),
+        isTrue,
+      );
+      expect(permissions.canViewOccupancyAnalytics(UserRole.staff), isTrue);
+      expect(permissions.canViewOccupancyAnalytics(UserRole.member), isFalse);
+      expect(permissions.canViewOccupancyAnalytics(null), isFalse);
+    });
+
     test('admin, branch manager and staff can manage occupancy', () {
       expect(permissions.canManageOccupancy(UserRole.admin), isTrue);
       expect(permissions.canManageOccupancy(UserRole.branchManager), isTrue);
@@ -126,6 +137,10 @@ void main() {
         expect(
           permissions.canAccessRoute(AppRoutes.occupancy, role),
           permissions.canViewOccupancy(role),
+        );
+        expect(
+          permissions.canAccessRoute(AppRoutes.analytics, role),
+          permissions.canViewOccupancyAnalytics(role),
         );
         expect(
           permissions.canAccessRoute(AppRoutes.desks, role),

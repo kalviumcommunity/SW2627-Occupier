@@ -205,6 +205,7 @@ void main() {
           AppRoutes.desks || AppRoutes.meetingRooms =>
             role == UserRole.admin || role == UserRole.branchManager,
           AppRoutes.occupancy => role != UserRole.member,
+          AppRoutes.analytics => role != UserRole.member,
           AppRoutes.walkInCheckIn =>
             role == UserRole.admin ||
                 role == UserRole.branchManager ||
@@ -522,6 +523,8 @@ final Map<String, WidgetBuilder> _testRoutes = {
       const Scaffold(body: Text('Test route ${AppRoutes.bookings}')),
   AppRoutes.occupancy: (_) =>
       const Scaffold(body: Text('Test route ${AppRoutes.occupancy}')),
+  AppRoutes.analytics: (_) =>
+      const Scaffold(body: Text('Test route ${AppRoutes.analytics}')),
   AppRoutes.myBookings: (_) =>
       const Scaffold(body: Text('Test route ${AppRoutes.myBookings}')),
   AppRoutes.walkInCheckIn: (_) =>
@@ -552,6 +555,7 @@ const _protectedRouteNames = [
   AppRoutes.meetingRooms,
   AppRoutes.bookings,
   AppRoutes.occupancy,
+  AppRoutes.analytics,
   AppRoutes.profile,
   AppRoutes.walkInCheckIn,
   AppRoutes.adminUserManagement,
