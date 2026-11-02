@@ -21,6 +21,7 @@ import 'models/user.dart';
 import 'features/occupancy/walk_in_check_in_screen.dart';
 import 'features/occupancy/occupancy_management_screen.dart';
 import 'features/admin/admin_user_management_screen.dart';
+import 'features/analytics/occupancy_analytics_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -76,6 +77,7 @@ class _OccupierAppState extends State<OccupierApp> {
     AppRoutes.meetingRooms,
     AppRoutes.bookings,
     AppRoutes.occupancy,
+    AppRoutes.analytics,
     AppRoutes.profile,
     AppRoutes.myBookings,
     AppRoutes.walkInCheckIn,
@@ -332,6 +334,7 @@ class _OccupierAppState extends State<OccupierApp> {
         const PlaceholderScreen(title: 'Meeting Rooms'),
     AppRoutes.bookings: (_) => BookingFlowScreen(),
     AppRoutes.occupancy: (_) => const OccupancyManagementScreen(),
+    AppRoutes.analytics: (_) => const OccupancyAnalyticsScreen(),
     AppRoutes.profile: (_) => const ProfileScreen(),
     AppRoutes.myBookings: (_) => const MyBookingsScreen(),
     AppRoutes.walkInCheckIn: (_) => const WalkInCheckInScreen(),

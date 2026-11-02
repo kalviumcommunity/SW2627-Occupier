@@ -168,6 +168,130 @@ class OccupancyRepository {
     );
   }
 
+  Future<List<Occupancy>> fetchHistoricalOccupancies({
+    required DateTime start,
+    required DateTime end,
+    String? branchId,
+    int pageSize = 200,
+  }) async {
+    if (!end.isAfter(start)) {
+      throw ArgumentError('The analytics end must be after its start.');
+    }
+    if (pageSize < 1 || pageSize > 500) {
+      throw ArgumentError.value(pageSize, 'pageSize', 'Must be 1-500.');
+    }
+
+    final startTimestamp = Timestamp.fromDate(start);
+    final endTimestamp = Timestamp.fromDate(end);
+    Query<Map<String, dynamic>> activeQuery = _occupancies
+        .where('status', isEqualTo: OccupancyStatus.active.name)
+        .where('checkInTime', isLessThan: endTimestamp)
+        .orderBy('checkInTime');
+    Query<Map<String, dynamic>> completedQuery = _occupancies
+        .where('status', isEqualTo: OccupancyStatus.completed.name)
+        .where('checkOutTime', isGreaterThan: startTimestamp)
+        .where('checkInTime', isLessThan: endTimestamp)
+        .orderBy('checkOutTime')
+        .orderBy('checkInTime');
+
+    if (branchId != null) {
+      if (branchId.trim().isEmpty) {
+        throw ArgumentError.value(branchId, 'branchId', 'Must not be empty.');
+      }
+      activeQuery = activeQuery.where('branchId', isEqualTo: branchId);
+      completedQuery = completedQuery.where('branchId', isEqualTo: branchId);
+    }
+
+    final pages = await Future.wait([
+      _readAllPages(activeQuery, pageSize),
+      _readAllPages(completedQuery, pageSize),
+    ]);
+    return pages
+        .expand((page) => page)
+        .map(_tryFromAnalyticsFirestore)
+        .whereType<Occupancy>()
+        .toList();
+  }
+
+  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _readAllPages(
+    Query<Map<String, dynamic>> query,
+    int pageSize,
+  ) async {
+    final documents = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    QueryDocumentSnapshot<Map<String, dynamic>>? lastDocument;
+
+    while (true) {
+      var pageQuery = query.limit(pageSize);
+      if (lastDocument != null) {
+        pageQuery = pageQuery.startAfterDocument(lastDocument);
+      }
+      final page = await pageQuery.get();
+      documents.addAll(page.docs);
+      if (page.docs.length < pageSize) return documents;
+      lastDocument = page.docs.last;
+    }
+  }
+
+  Occupancy? _tryFromAnalyticsFirestore(
+    QueryDocumentSnapshot<Map<String, dynamic>> document,
+  ) {
+    final data = document.data();
+    final branchId = data['branchId'];
+    final resourceId = data['resourceId'];
+    final resourceType = data['resourceType'];
+    final userId = data['userId'];
+    final statusName = data['status'];
+    final sourceName = data['source'];
+    final checkInTime = _analyticsDate(data['checkInTime']);
+    final checkOutValue = data['checkOutTime'];
+    final checkOutTime = checkOutValue == null
+        ? null
+        : _analyticsDate(checkOutValue);
+
+    if (branchId is! String ||
+        branchId.isEmpty ||
+        resourceId is! String ||
+        resourceId.isEmpty ||
+        resourceType is! String ||
+        (resourceType != 'desk' && resourceType != 'room') ||
+        userId is! String ||
+        userId.isEmpty ||
+        checkInTime == null ||
+        (checkOutValue != null && checkOutTime == null)) {
+      return null;
+    }
+
+    final status = OccupancyStatus.values.where(
+      (value) => value.name == statusName,
+    );
+    final source = OccupancySource.values.where(
+      (value) => value.name == sourceName,
+    );
+    if (status.isEmpty || source.isEmpty) return null;
+
+    return Occupancy(
+      occupancyId: document.id,
+      branchId: branchId,
+      resourceId: resourceId,
+      resourceType: resourceType,
+      userId: userId,
+      bookingId: data['bookingId'] is String
+          ? data['bookingId'] as String
+          : null,
+      status: status.first,
+      checkInTime: checkInTime,
+      checkOutTime: checkOutTime,
+      source: source.first,
+      createdAt: _analyticsDate(data['createdAt']) ?? checkInTime,
+    );
+  }
+
+  DateTime? _analyticsDate(Object? value) {
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    return null;
+  }
+
   // Check out a user and release the resource atomically.
   Future<void> checkOut(String occupancyId) async {
     final occupancyRef = _occupancies.doc(occupancyId);

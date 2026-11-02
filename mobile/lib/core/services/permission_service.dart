@@ -39,6 +39,8 @@ class PermissionService {
 
   bool canViewNetworkOccupancy(UserRole? role) => isAdministrator(role);
 
+  bool canViewOccupancyAnalytics(UserRole? role) => canViewOccupancy(role);
+
   bool canManageOccupancy(UserRole? role) {
     return role == UserRole.admin ||
         role == UserRole.branchManager ||
@@ -73,6 +75,7 @@ class PermissionService {
       AppRoutes.profile || AppRoutes.myBookings => canViewOwnProfile(role),
       AppRoutes.desks || AppRoutes.meetingRooms => canManageResources(role),
       AppRoutes.occupancy => canViewOccupancy(role),
+      AppRoutes.analytics => canViewOccupancyAnalytics(role),
       AppRoutes.walkInCheckIn => canManageOccupancy(role),
       AppRoutes.adminUserManagement => canManageUsers(role),
       _ => false,

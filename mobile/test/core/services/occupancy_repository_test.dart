@@ -134,6 +134,80 @@ void main() {
     expect(occupancies.first.occupancyId, 'occupancy-1');
   });
 
+  test(
+    'fetches paginated active and completed sessions that overlap a range',
+    () async {
+      final start = DateTime(2026, 10, 15);
+      final end = DateTime(2026, 10, 16);
+      final records = {
+        'active-before-range': (
+          status: OccupancyStatus.active.name,
+          checkIn: DateTime(2026, 10, 14, 23),
+          checkOut: null,
+          branch: branchId,
+        ),
+        'completed-after-range': (
+          status: OccupancyStatus.completed.name,
+          checkIn: DateTime(2026, 10, 14, 22),
+          checkOut: DateTime(2026, 10, 16, 2),
+          branch: branchId,
+        ),
+        'completed-before-range': (
+          status: OccupancyStatus.completed.name,
+          checkIn: DateTime(2026, 10, 14, 10),
+          checkOut: DateTime(2026, 10, 14, 11),
+          branch: branchId,
+        ),
+        'ends-at-inclusive-start': (
+          status: OccupancyStatus.completed.name,
+          checkIn: DateTime(2026, 10, 14, 23),
+          checkOut: start,
+          branch: branchId,
+        ),
+        'starts-at-exclusive-end': (
+          status: OccupancyStatus.completed.name,
+          checkIn: end,
+          checkOut: DateTime(2026, 10, 16, 1),
+          branch: branchId,
+        ),
+        'other-branch': (
+          status: OccupancyStatus.active.name,
+          checkIn: DateTime(2026, 10, 14, 23),
+          checkOut: null,
+          branch: 'branch-other',
+        ),
+      };
+      for (final entry in records.entries) {
+        await firestore.collection('occupancies').doc(entry.key).set({
+          ...occupancyData(
+            branchId: entry.value.branch,
+            status: entry.value.status,
+          ),
+          'checkInTime': Timestamp.fromDate(entry.value.checkIn),
+          'checkOutTime': entry.value.checkOut == null
+              ? null
+              : Timestamp.fromDate(entry.value.checkOut!),
+        });
+      }
+
+      final occupancies = await repository.fetchHistoricalOccupancies(
+        start: start,
+        end: end,
+        branchId: branchId,
+        pageSize: 1,
+      );
+
+      expect(occupancies.map((occupancy) => occupancy.occupancyId).toSet(), {
+        'active-before-range',
+        'completed-after-range',
+      });
+      expect(
+        occupancies.every((occupancy) => occupancy.branchId == branchId),
+        isTrue,
+      );
+    },
+  );
+
   test('stops emitting a record as active when it is completed', () async {
     final document = firestore.collection('occupancies').doc('occupancy-1');
 

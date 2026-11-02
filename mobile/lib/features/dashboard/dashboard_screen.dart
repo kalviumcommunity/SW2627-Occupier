@@ -117,6 +117,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 Navigator.pushNamed(context, AppRoutes.walkInCheckIn);
               },
             ),
+          if (canSeeOccupancy)
+            IconButton(
+              tooltip: 'Historical analytics',
+              icon: const Icon(Icons.analytics_outlined),
+              onPressed: () {
+                Navigator.pushNamed(context, AppRoutes.analytics);
+              },
+            ),
           if (canManageOccupancy)
             IconButton(
               tooltip: 'Active walk-ins',

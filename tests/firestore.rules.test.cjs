@@ -36,6 +36,15 @@ const mobileFirestoreRules = fs.readFileSync(
   path.resolve(__dirname, '..', 'mobile', 'firestore.rules'),
   'utf8',
 );
+const rootFirestoreIndexes = JSON.parse(
+  fs.readFileSync(path.resolve(__dirname, '..', 'firestore.indexes.json'), 'utf8'),
+);
+const mobileFirestoreIndexes = JSON.parse(
+  fs.readFileSync(
+    path.resolve(__dirname, '..', 'mobile', 'firestore.indexes.json'),
+    'utf8',
+  ),
+);
 const rootFirebaseConfig = JSON.parse(
   fs.readFileSync(path.resolve(__dirname, '..', 'firebase.json'), 'utf8'),
 );
@@ -69,6 +78,12 @@ test('Firebase configurations point to identical Firestore rules', () => {
   assert.equal(rootFirebaseConfig.firestore.rules, 'firestore.rules');
   assert.equal(mobileFirebaseConfig.firestore.rules, 'firestore.rules');
   assert.equal(mobileFirestoreRules, firestoreRules);
+  assert.equal(rootFirebaseConfig.firestore.indexes, 'firestore.indexes.json');
+  assert.equal(
+    mobileFirebaseConfig.firestore.indexes,
+    'firestore.indexes.json',
+  );
+  assert.deepEqual(mobileFirestoreIndexes, rootFirestoreIndexes);
   assert.equal(rootFirebaseConfig.storage.rules, 'storage.rules');
   assert.equal(rootFirebaseConfig.emulators.storage.port, 9199);
 });
@@ -688,6 +703,84 @@ test('network occupancy reads are admin-wide and staff-scoped', async () => {
   }
 });
 
+test('historical overlap queries are admin-wide and branch-scoped', async () => {
+  const rangeStart = new Date('2026-10-15T00:00:00Z');
+  const rangeEnd = new Date('2026-10-16T00:00:00Z');
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    for (const [uid, role] of [
+      ['admin-1', 'admin'],
+      ['manager-1', 'branchManager'],
+      ['staff-1', 'staff'],
+    ]) {
+      await setDoc(doc(db, 'users', uid), {
+        uid,
+        name: role,
+        email: `${uid}@example.com`,
+        role,
+      });
+    }
+    await setDoc(
+      doc(db, 'branches', 'branch-2'),
+      validBranch({ managerUid: 'manager-2' }),
+    );
+    await setDoc(
+      doc(db, 'occupancies', 'old-start-assigned'),
+      validOccupancy({
+        occupancyId: 'old-start-assigned',
+        branchId: 'branch-1',
+        userId: 'walk-in-old-start-assigned',
+        status: 'completed',
+        checkInTime: new Date('2026-10-14T23:00:00Z'),
+        checkOutTime: new Date('2026-10-16T02:00:00Z'),
+      }),
+    );
+    await setDoc(
+      doc(db, 'occupancies', 'other-branch-completed'),
+      validOccupancy({
+        occupancyId: 'other-branch-completed',
+        branchId: 'branch-2',
+        userId: 'walk-in-other-branch',
+        status: 'completed',
+        checkInTime: new Date('2026-10-15T01:00:00Z'),
+        checkOutTime: new Date('2026-10-15T02:00:00Z'),
+      }),
+    );
+  });
+
+  const historicalOverlapQuery = (db, branchId) => {
+    const constraints = [
+      where('status', '==', 'completed'),
+      where('checkOutTime', '>', rangeStart),
+      where('checkInTime', '<', rangeEnd),
+    ];
+    if (branchId != null) constraints.push(where('branchId', '==', branchId));
+    return query(collection(db, 'occupancies'), ...constraints);
+  };
+  const adminDb = testEnv.authenticatedContext('admin-1').firestore();
+  const networkRows = await assertSucceeds(
+    getDocs(historicalOverlapQuery(adminDb)),
+  );
+  assert.equal(networkRows.size, 2);
+
+  for (const uid of ['manager-1', 'staff-1']) {
+    const staffDb = testEnv.authenticatedContext(uid).firestore();
+    const assignedRows = await assertSucceeds(
+      getDocs(historicalOverlapQuery(staffDb, 'branch-1')),
+    );
+    assert.equal(assignedRows.size, 1);
+    await assertFails(
+      getDocs(historicalOverlapQuery(staffDb, 'branch-2')),
+    );
+    await assertFails(getDocs(historicalOverlapQuery(staffDb)));
+  }
+
+  const memberDb = testEnv.authenticatedContext('member-1').firestore();
+  await assertFails(
+    getDocs(historicalOverlapQuery(memberDb, 'branch-1')),
+  );
+});
+
 test('denies users from creating or changing unauthorized bookings', async () => {
   const db = testEnv.authenticatedContext('member-1').firestore();
 
@@ -1151,6 +1244,7 @@ test('assigned staff can atomically check out a walk-in and release its resource
     });
     await updateDoc(doc(db, 'branches', 'branch-1', 'desks', 'desk-1'), {
       status: 'occupied',
+      activeOccupancyId: 'walk-in-checkout-1',
     });
     await setDoc(
       doc(db, 'occupancies', 'walk-in-checkout-1'),
@@ -1168,7 +1262,7 @@ test('assigned staff can atomically check out a walk-in and release its resource
   });
 
   const db = testEnv.authenticatedContext('staff-1').firestore();
-  await assertSucceeds(checkOutOccupancyAtomically(db, 'walk-in-checkout-1'));
+  await assertSucceeds(checkOutAtomically(db, 'walk-in-checkout-1'));
 
   const occupancy = await getDoc(doc(db, 'occupancies', 'walk-in-checkout-1'));
   const resource = await getDoc(
